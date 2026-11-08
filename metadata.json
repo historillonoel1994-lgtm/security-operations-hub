@@ -1,0 +1,6 @@
+{
+  "name": "Security Operations Hub (SOH)",
+  "description": "Centralized command board for corporate security managers and regional field supervisors in the Philippines to coordinate tasks, submit daily activities, track reviews, and generate compliance reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
