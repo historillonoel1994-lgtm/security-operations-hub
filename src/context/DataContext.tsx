@@ -1,15 +1,17 @@
 /**
- * Data Management Context
+ * Data Management Context (Production Mode)
  * Security Operations Hub (SOH)
  *
- * Handles:
- * 1. Task Lifecycle: Assigned -> In Progress -> For Review -> Completed (or Returned)
- * 2. Strict Role Segregation:
- *    - Manager: Full department scope
- *    - Team Member: Only own assigned tasks & own daily activities
- * 3. Daily Activities logging & filtering
- * 4. Audit Logging for security accountability
- * 5. Dual storage: Real Supabase tables when configured, or persistent localStorage in Demo Mode
+ * Exclusively queries and updates the real Supabase database:
+ * 1. tasks: Regional assignments, due dates, priorities, lifecycle status.
+ * 2. task_updates: Chronological notes, percentages, and manager review notes.
+ * 3. activities: Daily shift accomplishments.
+ * 4. audit_logs: System compliance events.
+ *
+ * Strict Access & RLS Alignment:
+ * - Unauthenticated or unapproved users receive zero records.
+ * - Team Members see only their own assigned tasks & personal daily activities.
+ * - Managers view full department records and can assign/review tasks.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
@@ -23,15 +25,9 @@ import {
   TaskPriority,
   TaskCategory,
 } from '../types/index.ts';
-import {
-  DEMO_TASKS,
-  DEMO_TASK_UPDATES,
-  DEMO_ACTIVITIES,
-  DEMO_AUDIT_LOGS,
-} from '../lib/mockData.ts';
 import { isTaskOverdue, isTaskDueToday, getPhilippineToday } from '../lib/dateUtils.ts';
 import { useAuth } from './AuthContext.tsx';
-import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient.ts';
+import { getSupabaseClient } from '../lib/supabaseClient.ts';
 
 interface CreateTaskPayload {
   title: string;
@@ -75,15 +71,9 @@ interface DataContextType {
   ) => Promise<void>;
   createActivity: (payload: CreateActivityPayload) => Promise<SecurityActivity>;
   refreshData: () => Promise<void>;
-  resetToDefaultDemoData: () => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
-
-const DEMO_TASKS_STORAGE_KEY = 'soh_demo_tasks_v1';
-const DEMO_UPDATES_STORAGE_KEY = 'soh_demo_updates_v1';
-const DEMO_ACTIVITIES_STORAGE_KEY = 'soh_demo_activities_v1';
-const DEMO_AUDITS_STORAGE_KEY = 'soh_demo_audits_v1';
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, isManager, isApproved, allProfiles } = useAuth();
@@ -94,125 +84,87 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [rawAuditLogs, setRawAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Initialize demo data from storage or defaults
-  const loadDemoState = useCallback(() => {
-    try {
-      const storedTasks = localStorage.getItem(DEMO_TASKS_STORAGE_KEY);
-      const storedUpdates = localStorage.getItem(DEMO_UPDATES_STORAGE_KEY);
-      const storedActivities = localStorage.getItem(DEMO_ACTIVITIES_STORAGE_KEY);
-      const storedAudits = localStorage.getItem(DEMO_AUDITS_STORAGE_KEY);
-
-      setRawTasks(storedTasks ? JSON.parse(storedTasks) : DEMO_TASKS);
-      setRawUpdates(storedUpdates ? JSON.parse(storedUpdates) : DEMO_TASK_UPDATES);
-      setRawActivities(storedActivities ? JSON.parse(storedActivities) : DEMO_ACTIVITIES);
-      setRawAuditLogs(storedAudits ? JSON.parse(storedAudits) : DEMO_AUDIT_LOGS);
-    } catch (e) {
-      console.warn('Error loading stored demo state, resetting to mock data:', e);
-      setRawTasks(DEMO_TASKS);
-      setRawUpdates(DEMO_TASK_UPDATES);
-      setRawActivities(DEMO_ACTIVITIES);
-      setRawAuditLogs(DEMO_AUDIT_LOGS);
-    }
-  }, []);
-
-  const saveDemoTasks = (tasks: Task[]) => {
-    setRawTasks(tasks);
-    try {
-      localStorage.setItem(DEMO_TASKS_STORAGE_KEY, JSON.stringify(tasks));
-    } catch (e) {
-      console.warn('Failed to save tasks to localStorage:', e);
-    }
-  };
-
-  const saveDemoUpdates = (updates: TaskUpdate[]) => {
-    setRawUpdates(updates);
-    try {
-      localStorage.setItem(DEMO_UPDATES_STORAGE_KEY, JSON.stringify(updates));
-    } catch (e) {
-      console.warn('Failed to save updates to localStorage:', e);
-    }
-  };
-
-  const saveDemoActivities = (activities: SecurityActivity[]) => {
-    setRawActivities(activities);
-    try {
-      localStorage.setItem(DEMO_ACTIVITIES_STORAGE_KEY, JSON.stringify(activities));
-    } catch (e) {
-      console.warn('Failed to save activities to localStorage:', e);
-    }
-  };
-
-  const saveDemoAudits = (audits: AuditLog[]) => {
-    setRawAuditLogs(audits);
-    try {
-      localStorage.setItem(DEMO_AUDITS_STORAGE_KEY, JSON.stringify(audits));
-    } catch (e) {
-      console.warn('Failed to save audits to localStorage:', e);
-    }
-  };
-
-  const resetToDefaultDemoData = () => {
-    localStorage.removeItem(DEMO_TASKS_STORAGE_KEY);
-    localStorage.removeItem(DEMO_UPDATES_STORAGE_KEY);
-    localStorage.removeItem(DEMO_ACTIVITIES_STORAGE_KEY);
-    localStorage.removeItem(DEMO_AUDITS_STORAGE_KEY);
-    loadDemoState();
-  };
-
-  // Main fetch function: supports Live Supabase & Demo local storage
+  // Main fetch function: strictly queries Supabase database tables
   const refreshData = useCallback(async () => {
+    // If user is not authenticated or not approved, wipe state and return immediately
+    if (!currentUser || !isApproved) {
+      setRawTasks([]);
+      setRawUpdates([]);
+      setRawActivities([]);
+      setRawAuditLogs([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const supabase = getSupabaseClient();
 
-    if (supabase && isSupabaseConfigured() && currentUser) {
-      try {
-        // Fetch tasks
-        const { data: tasksData, error: tasksErr } = await supabase
-          .from('tasks')
-          .select('*')
-          .order('due_date', { ascending: true });
+    try {
+      // 1. Fetch tasks
+      const { data: tasksData, error: tasksErr } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('due_date', { ascending: true });
 
-        // Fetch task updates
-        const { data: updatesData, error: updatesErr } = await supabase
-          .from('task_updates')
-          .select('*')
-          .order('created_at', { ascending: true });
+      if (tasksErr) {
+        console.error('Error fetching tasks from Supabase:', tasksErr.message);
+      } else if (tasksData) {
+        setRawTasks(tasksData as Task[]);
+      }
 
-        // Fetch activities
-        const { data: activitiesData, error: actErr } = await supabase
-          .from('activities')
-          .select('*')
-          .order('activity_date', { ascending: false });
+      // 2. Fetch task updates
+      const { data: updatesData, error: updatesErr } = await supabase
+        .from('task_updates')
+        .select('*')
+        .order('created_at', { ascending: true });
 
-        // Fetch audit logs
+      if (updatesErr) {
+        console.error('Error fetching task updates from Supabase:', updatesErr.message);
+      } else if (updatesData) {
+        setRawUpdates(updatesData as TaskUpdate[]);
+      }
+
+      // 3. Fetch activities
+      const { data: activitiesData, error: actErr } = await supabase
+        .from('activities')
+        .select('*')
+        .order('activity_date', { ascending: false });
+
+      if (actErr) {
+        console.error('Error fetching activities from Supabase:', actErr.message);
+      } else if (activitiesData) {
+        setRawActivities(activitiesData as SecurityActivity[]);
+      }
+
+      // 4. Fetch audit logs (only managers have permission in RLS)
+      if (isManager) {
         const { data: auditData, error: auditErr } = await supabase
           .from('audit_logs')
           .select('*')
           .order('created_at', { ascending: false })
           .limit(100);
 
-        if (!tasksErr && tasksData) setRawTasks(tasksData as Task[]);
-        if (!updatesErr && updatesData) setRawUpdates(updatesData as TaskUpdate[]);
-        if (!actErr && activitiesData) setRawActivities(activitiesData as SecurityActivity[]);
-        if (!auditErr && auditData) setRawAuditLogs(auditData as AuditLog[]);
-      } catch (err) {
-        console.warn('Error reading from Supabase, falling back to local state:', err);
-        loadDemoState();
+        if (!auditErr && auditData) {
+          setRawAuditLogs(auditData as AuditLog[]);
+        }
+      } else {
+        setRawAuditLogs([]);
       }
-    } else {
-      loadDemoState();
+    } catch (err: any) {
+      console.error('Network exception fetching database records:', err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [currentUser, loadDemoState]);
+  }, [currentUser, isApproved, isManager]);
 
   useEffect(() => {
     refreshData();
-  }, [refreshData, currentUser]);
+  }, [refreshData]);
 
   // Strict role segregation filtering:
-  // If user is unapproved or inactive, they see ZERO tasks or activities.
-  // If user is a member, they see ONLY tasks assigned to their id and their own activities.
-  // If user is a manager, they see all department records.
+  // - If user is unapproved or inactive: ZERO tasks or activities.
+  // - If user is a member: ONLY tasks assigned to their user ID & their own activities.
+  // - If user is a manager: Full authorized departmental records.
   const authorizedTasks = useMemo(() => {
     if (!currentUser || !isApproved) return [];
     if (isManager) return rawTasks;
@@ -293,22 +245,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const supabase = getSupabaseClient();
-    if (supabase && isSupabaseConfigured()) {
-      const { data, error } = await supabase.from('tasks').insert(newTask).select().single();
-      if (error) throw error;
-      await supabase.from('audit_logs').insert(newAudit);
-      await refreshData();
-      return (data as Task) || newTask;
-    } else {
-      const updatedTasks = [newTask, ...rawTasks];
-      const updatedAudits = [newAudit, ...rawAuditLogs];
-      saveDemoTasks(updatedTasks);
-      saveDemoAudits(updatedAudits);
-      return newTask;
-    }
+    const { data, error } = await supabase.from('tasks').insert(newTask).select().single();
+    if (error) throw error;
+
+    await supabase.from('audit_logs').insert(newAudit);
+    await refreshData();
+    return (data as Task) || newTask;
   };
 
-  // UPDATE TASK PROGRESS (Team Member or Manager)
+  // UPDATE TASK PROGRESS (Personnel or Manager)
   const updateTaskProgress = async (
     taskId: string,
     progressNote: string,
@@ -352,13 +297,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       created_at: nowIso,
     };
 
-    const updatedTask: Task = {
-      ...task,
-      status: newStatus,
-      progress_percent: progressPercent !== undefined ? progressPercent : task.progress_percent,
-      updated_at: nowIso,
-    };
-
     const newAudit: AuditLog = {
       id: `aud-${Date.now()}`,
       actor_id: currentUser.id,
@@ -373,27 +311,21 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const supabase = getSupabaseClient();
-    if (supabase && isSupabaseConfigured()) {
-      await supabase.from('task_updates').insert(newUpdate);
-      await supabase
-        .from('tasks')
-        .update({
-          status: updatedTask.status,
-          progress_percent: updatedTask.progress_percent,
-          updated_at: nowIso,
-        })
-        .eq('id', taskId);
-      await supabase.from('audit_logs').insert(newAudit);
-      await refreshData();
-    } else {
-      const updatedTasks = rawTasks.map((t) => (t.id === taskId ? updatedTask : t));
-      const updatedUpdates = [...rawUpdates, newUpdate];
-      const updatedAudits = [newAudit, ...rawAuditLogs];
+    const { error: updErr } = await supabase.from('task_updates').insert(newUpdate);
+    if (updErr) throw updErr;
 
-      saveDemoTasks(updatedTasks);
-      saveDemoUpdates(updatedUpdates);
-      saveDemoAudits(updatedAudits);
-    }
+    const { error: tskErr } = await supabase
+      .from('tasks')
+      .update({
+        status: newStatus,
+        progress_percent: progressPercent !== undefined ? progressPercent : task.progress_percent,
+        updated_at: nowIso,
+      })
+      .eq('id', taskId);
+    if (tskErr) throw tskErr;
+
+    await supabase.from('audit_logs').insert(newAudit);
+    await refreshData();
   };
 
   // REVIEW TASK (Manager Only: Approve or Return)
@@ -432,15 +364,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       created_at: nowIso,
     };
 
-    const updatedTask: Task = {
-      ...task,
-      status: newStatus,
-      progress_percent: isApprove ? 100 : task.progress_percent,
-      remarks: feedbackNote.trim() ? feedbackNote.trim() : task.remarks,
-      completed_at: isApprove ? nowIso : null,
-      updated_at: nowIso,
-    };
-
     const newAudit: AuditLog = {
       id: `aud-${Date.now()}`,
       actor_id: currentUser.id,
@@ -455,29 +378,23 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const supabase = getSupabaseClient();
-    if (supabase && isSupabaseConfigured()) {
-      await supabase.from('task_updates').insert(newUpdate);
-      await supabase
-        .from('tasks')
-        .update({
-          status: updatedTask.status,
-          progress_percent: updatedTask.progress_percent,
-          remarks: updatedTask.remarks,
-          completed_at: updatedTask.completed_at,
-          updated_at: nowIso,
-        })
-        .eq('id', taskId);
-      await supabase.from('audit_logs').insert(newAudit);
-      await refreshData();
-    } else {
-      const updatedTasks = rawTasks.map((t) => (t.id === taskId ? updatedTask : t));
-      const updatedUpdates = [...rawUpdates, newUpdate];
-      const updatedAudits = [newAudit, ...rawAuditLogs];
+    const { error: updErr } = await supabase.from('task_updates').insert(newUpdate);
+    if (updErr) throw updErr;
 
-      saveDemoTasks(updatedTasks);
-      saveDemoUpdates(updatedUpdates);
-      saveDemoAudits(updatedAudits);
-    }
+    const { error: tskErr } = await supabase
+      .from('tasks')
+      .update({
+        status: newStatus,
+        progress_percent: isApprove ? 100 : task.progress_percent,
+        remarks: feedbackNote.trim() ? feedbackNote.trim() : task.remarks,
+        completed_at: isApprove ? nowIso : null,
+        updated_at: nowIso,
+      })
+      .eq('id', taskId);
+    if (tskErr) throw tskErr;
+
+    await supabase.from('audit_logs').insert(newAudit);
+    await refreshData();
   };
 
   // CREATE DAILY ACTIVITY
@@ -522,19 +439,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const supabase = getSupabaseClient();
-    if (supabase && isSupabaseConfigured()) {
-      const { data, error } = await supabase.from('activities').insert(newActivity).select().single();
-      if (error) throw error;
-      await supabase.from('audit_logs').insert(newAudit);
-      await refreshData();
-      return (data as SecurityActivity) || newActivity;
-    } else {
-      const updatedActivities = [newActivity, ...rawActivities];
-      const updatedAudits = [newAudit, ...rawAuditLogs];
-      saveDemoActivities(updatedActivities);
-      saveDemoAudits(updatedAudits);
-      return newActivity;
-    }
+    const { data, error } = await supabase.from('activities').insert(newActivity).select().single();
+    if (error) throw error;
+
+    await supabase.from('audit_logs').insert(newAudit);
+    await refreshData();
+    return (data as SecurityActivity) || newActivity;
   };
 
   return (
@@ -552,7 +462,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reviewTask,
         createActivity,
         refreshData,
-        resetToDefaultDemoData,
       }}
     >
       {children}

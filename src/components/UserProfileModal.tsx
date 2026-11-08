@@ -12,7 +12,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { currentUser, isManager, isLiveSupabase, logout } = useAuth();
+  const { currentUser, isManager, logout } = useAuth();
 
   if (!isOpen || !currentUser) return null;
 
@@ -82,9 +82,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             )}
 
             <div className="flex justify-between">
-              <span className="text-slate-500">Environment:</span>
-              <span className="font-mono text-slate-600">
-                {isLiveSupabase ? 'Supabase Cloud DB' : 'Demo Sandbox Mode'}
+              <span className="text-slate-500">Database:</span>
+              <span className="font-mono text-emerald-700 font-semibold">
+                Supabase PostgreSQL (Live Production)
               </span>
             </div>
           </div>

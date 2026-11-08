@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext.tsx';
 import { ShieldAlert, Clock, RefreshCw, LogOut, CheckCircle } from 'lucide-react';
 
 export const PendingApprovalScreen: React.FC = () => {
-  const { currentUser, refreshProfiles, logout, isLiveSupabase, loginAsDemoUser } = useAuth();
+  const { currentUser, refreshProfiles, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -39,23 +39,6 @@ export const PendingApprovalScreen: React.FC = () => {
           <p className="leading-relaxed text-slate-600">
             An authorized <span className="font-semibold text-slate-900">Corporate Security Manager</span> must review and activate your profile before you can access regional task lists, inspection forms, or shift activities.
           </p>
-
-          {/* Demo Sandbox Help Box */}
-          {!isLiveSupabase && (
-            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 space-y-2">
-              <span className="font-bold block text-xs">Testing Tip (Demo Sandbox):</span>
-              <p className="text-[11px] leading-relaxed text-blue-800">
-                You are currently previewing in Demo Mode. To test approving this account:
-              </p>
-              <button
-                type="button"
-                onClick={() => loginAsDemoUser('usr-mgr-001')}
-                className="w-full py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded text-xs transition"
-              >
-                Switch to Security Manager (Capt. Noel Historillo)
-              </button>
-            </div>
-          )}
 
           {/* Action Buttons */}
           <div className="pt-3 flex items-center justify-between border-t border-slate-200">

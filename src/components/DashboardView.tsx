@@ -31,7 +31,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectTask,
   onNavigateToTasks,
 }) => {
-  const { currentUser, isManager, isLiveSupabase } = useAuth();
+  const { currentUser, isManager } = useAuth();
   const { tasks, summary } = useData();
 
   // Search and Filter State
@@ -82,21 +82,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Demo Mode Notice Banner (Visibly labeled fictional records) */}
-      {!isLiveSupabase && (
-        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-3 text-xs text-amber-900 shadow-xs">
-          <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <span className="font-bold block">DEMO SANDBOX MODE (Fictional Sample Records)</span>
-            <span>
-              All sample names, facilities, and activities shown are fictional test data for demonstration.
-              No proprietary incident reports or real employee credentials are stored. Connect Supabase keys in{' '}
-              <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px] font-mono">.env.example</code> to activate live database storage.
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Header & Quick Action */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
