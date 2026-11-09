@@ -18,20 +18,25 @@ import {
   FileText,
   ShieldAlert,
   ArrowRight,
+  Edit3,
 } from 'lucide-react';
 
 interface TaskDetailModalProps {
   task: Task | null;
   isOpen: boolean;
   onClose: () => void;
+  onOpenEditTask?: (task: Task) => void;
+  onOpenReopenTask?: (task: Task) => void;
 }
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   task,
   isOpen,
   onClose,
+  onOpenEditTask,
+  onOpenReopenTask,
 }) => {
-  const { currentUser, isManager } = useAuth();
+  const { currentUser, isManager, isApproved } = useAuth();
   const { taskUpdates, updateTaskProgress, reviewTask } = useData();
 
   // Progress update form state for assigned member / manager
@@ -138,13 +143,45 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               {task.title}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-md transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {isManager && isApproved && task.status !== 'completed' && onOpenEditTask && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenEditTask(task);
+                }}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
+                title="Edit task details, category, dates, or reassign designated personnel"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Task</span>
+              </button>
+            )}
+
+            {isManager && isApproved && task.status === 'completed' && onOpenReopenTask && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenReopenTask(task);
+                }}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
+                title="Reopen completed task for further field actions"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reopen Task</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-1 rounded-md transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Scrollable Body */}
@@ -467,21 +504,53 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           )}
 
           {task.status === 'completed' && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-3 text-emerald-900 text-xs">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-              <div>
-                <span className="font-bold block">Task Completed & Closed</span>
-                <span>
-                  Officially verified and approved by Security Management on{' '}
-                  {formatPhilippineDateTime(task.completed_at || task.updated_at)}.
-                </span>
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-emerald-900 text-xs">
+              <div className="flex items-center space-x-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                <div>
+                  <span className="font-bold block">Task Completed & Closed</span>
+                  <span>
+                    Officially verified and approved by Security Management on{' '}
+                    {formatPhilippineDateTime(task.completed_at || task.updated_at)}.
+                  </span>
+                </div>
               </div>
+
+              {isManager && isApproved && onOpenReopenTask && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenReopenTask(task);
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg flex items-center space-x-1.5 transition self-start sm:self-auto cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reopen Task</span>
+                </button>
+              )}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <div>
+            {isManager && isApproved && task.status !== 'completed' && onOpenEditTask && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenEditTask(task);
+                }}
+                className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Task & Reassign</span>
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={onClose}

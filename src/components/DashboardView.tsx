@@ -18,21 +18,28 @@ import {
   Calendar,
   AlertCircle,
   FileSpreadsheet,
+  Award,
+  Lightbulb,
 } from 'lucide-react';
+import { MemberInitiative } from '../types/index.ts';
 
 interface DashboardViewProps {
   onCreateTask: () => void;
   onSelectTask: (task: Task) => void;
   onNavigateToTasks: () => void;
+  onNavigateToInitiatives?: () => void;
+  onSelectInitiative?: (initiative: MemberInitiative) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onCreateTask,
   onSelectTask,
   onNavigateToTasks,
+  onNavigateToInitiatives,
+  onSelectInitiative,
 }) => {
   const { currentUser, isManager } = useAuth();
-  const { tasks, summary } = useData();
+  const { tasks, summary, initiatives, initiativeSummary } = useData();
 
   // Search and Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -210,6 +217,105 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-[11px] text-slate-400 mt-0.5">Officially closed</div>
         </div>
       </div>
+
+      {/* Member Initiative & Recognition Highlight Banner */}
+      <div className="p-4 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-xl shadow-xs border border-blue-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-blue-600/60 rounded-lg text-amber-300">
+            <Award className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h3 className="font-bold text-sm tracking-tight text-white">
+                Member Initiative & Activity Recognition
+              </h3>
+              <span className="text-[10px] bg-amber-400 text-slate-950 font-bold px-2 py-0.2 rounded-full uppercase">
+                New
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Proactive inspections & permitted routine checks recognized separately from direct manager assignments
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4 self-start sm:self-auto text-xs">
+          <div className="text-right">
+            <span className="text-slate-400 text-[11px] block">Officially Recognized</span>
+            <span className="text-lg font-bold text-emerald-400">
+              {initiativeSummary.recognized}
+            </span>
+          </div>
+
+          <div className="text-right border-l border-slate-700 pl-4">
+            <span className="text-slate-400 text-[11px] block">Awaiting Review</span>
+            <span className="text-lg font-bold text-amber-300">
+              {initiativeSummary.pendingReview}
+            </span>
+          </div>
+
+          {onNavigateToInitiatives && (
+            <button
+              type="button"
+              onClick={onNavigateToInitiatives}
+              className="ml-2 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition flex items-center space-x-1 cursor-pointer whitespace-nowrap"
+            >
+              <span>{isManager ? 'Open Reviews' : 'My Initiatives'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Manager Specific: Quick Initiatives for Review Alert */}
+      {isManager && initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted').length > 0 && (
+        <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-xl space-y-3 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Lightbulb className="w-4 h-4 text-amber-700" />
+              <h3 className="font-bold text-xs uppercase tracking-wider text-amber-900">
+                Initiatives Awaiting Manager Review (
+                {initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted').length}
+                )
+              </h3>
+            </div>
+            {onNavigateToInitiatives && (
+              <button
+                type="button"
+                onClick={onNavigateToInitiatives}
+                className="text-xs font-semibold text-blue-800 hover:underline"
+              >
+                View All Reviews →
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {initiatives
+              .filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted')
+              .slice(0, 4)
+              .map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => onSelectInitiative?.(item)}
+                  className="p-3 bg-white border border-amber-200 rounded-lg text-xs hover:border-blue-400 hover:shadow-xs transition cursor-pointer flex items-center justify-between"
+                >
+                  <div className="space-y-0.5 truncate pr-2">
+                    <div className="font-semibold text-slate-900 truncate">{item.title}</div>
+                    <div className="text-[11px] text-slate-500">
+                      By {item.submitted_by_name} • {item.region} •{' '}
+                      <span className="font-medium text-amber-800 capitalize">
+                        {item.status.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-semibold text-blue-700 hover:underline whitespace-nowrap">
+                    Review →
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">

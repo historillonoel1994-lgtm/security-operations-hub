@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
-import { Task, SecurityActivity } from '../types/index.ts';
+import { Task, SecurityActivity, MemberInitiative } from '../types/index.ts';
 import { formatPhilippineDate, getDueStatusLabel, getPhilippineToday } from '../lib/dateUtils.ts';
 import { TASK_STATUS_CONFIG } from '../lib/philippinesRegions.ts';
+import { INITIATIVE_CATEGORIES } from '../lib/initiativeConstants.ts';
 import {
   BarChart3,
   Download,
@@ -17,6 +18,10 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Award,
+  Lightbulb,
+  ShieldCheck,
+  RotateCcw,
 } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -25,12 +30,11 @@ interface ReportsViewProps {
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => {
   const { isManager, currentUser } = useAuth();
-  const { tasks, activities } = useData();
+  const { tasks, activities, initiatives } = useData();
 
   // Date range presets
   const today = getPhilippineToday();
   const [fromDate, setFromDate] = useState<string>(() => {
-    // Default to start of current month or past 14 days
     const d = new Date();
     d.setDate(d.getDate() - 14);
     return d.toISOString().split('T')[0];
@@ -78,7 +82,84 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
     });
   }, [activities, fromDate, toDate]);
 
-  // Specific groupings requested by specification
+  // Initiative Recognition Metrics in reporting timeframe
+  // Note: An initiative is officially counted as recognized when status is 'recognized'
+  // and its final manager recognition date falls within the selected period.
+  const recognizedInitiatives = useMemo(() => {
+    return initiatives.filter((i) => {
+      if (i.status !== 'recognized' || !i.recognized_at) return false;
+      const recDate = i.recognized_at.split('T')[0];
+      return recDate >= fromDate && recDate <= toDate;
+    });
+  }, [initiatives, fromDate, toDate]);
+
+  const filteredInitiatives = useMemo(() => {
+    return initiatives.filter((i) => {
+      const initDate = i.activity_date || i.created_at.split('T')[0];
+      return initDate >= fromDate && initDate <= toDate;
+    });
+  }, [initiatives, fromDate, toDate]);
+
+  const pendingInitiatives = useMemo(() => {
+    return initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted');
+  }, [initiatives]);
+
+  const returnedInitiatives = useMemo(() => {
+    return initiatives.filter((i) => i.status === 'returned');
+  }, [initiatives]);
+
+  const rejectedInitiatives = useMemo(() => {
+    return initiatives.filter((i) => i.status === 'rejected');
+  }, [initiatives]);
+
+  // Recognized Initiatives by Member Leaderboard
+  const recognizedByMember = useMemo(() => {
+    const map: Record<string, { name: string; email: string; count: number; latest: string }> = {};
+    for (const item of recognizedInitiatives) {
+      const key = item.submitted_by;
+      if (!map[key]) {
+        map[key] = {
+          name: item.submitted_by_name || 'Member',
+          email: item.submitted_by_email || '',
+          count: 0,
+          latest: item.title,
+        };
+      }
+      map[key].count += 1;
+    }
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }, [recognizedInitiatives]);
+
+  // Recognized Initiatives by Region
+  const recognizedByRegion = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const item of recognizedInitiatives) {
+      map[item.region] = (map[item.region] || 0) + 1;
+    }
+    return Object.entries(map)
+      .map(([region, count]) => ({ region, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [recognizedInitiatives]);
+
+  // Initiative Categories & Trends
+  const categoriesBreakdown = useMemo(() => {
+    const map: Record<string, { total: number; recognized: number }> = {};
+    for (const cat of INITIATIVE_CATEGORIES) {
+      map[cat] = { total: 0, recognized: 0 };
+    }
+    for (const item of filteredInitiatives) {
+      if (!map[item.category]) map[item.category] = { total: 0, recognized: 0 };
+      map[item.category].total += 1;
+      if (item.status === 'recognized') {
+        map[item.category].recognized += 1;
+      }
+    }
+    return Object.entries(map)
+      .map(([category, stats]) => ({ category, ...stats }))
+      .filter((x) => x.total > 0 || x.recognized > 0);
+  }, [filteredInitiatives]);
+
+  // Task groupings
   const pendingTasks = useMemo(() => {
     return filteredTasks.filter((t) => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'returned');
   }, [filteredTasks]);
@@ -172,6 +253,55 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
     document.body.removeChild(link);
   };
 
+  const handleExportInitiativesCSV = () => {
+    const headers = [
+      'Initiative ID',
+      'Title',
+      'Type',
+      'Category',
+      'Submitted By',
+      'Member Email',
+      'Region',
+      'Facility / Location',
+      'Activity Date',
+      'Status',
+      'Recognized At',
+      'Reviewed By',
+      'Concern / Description',
+      'Action Taken / Proposed',
+      'Expected Outcome / Accomplishment',
+      'Manager Remarks',
+    ];
+
+    const rows = filteredInitiatives.map((i) => [
+      `"${i.id}"`,
+      `"${i.title.replace(/"/g, '""')}"`,
+      `"${i.initiative_type}"`,
+      `"${i.category}"`,
+      `"${(i.submitted_by_name || '').replace(/"/g, '""')}"`,
+      `"${(i.submitted_by_email || '').replace(/"/g, '""')}"`,
+      `"${i.region.replace(/"/g, '""')}"`,
+      `"${(i.location || '').replace(/"/g, '""')}"`,
+      `"${i.activity_date}"`,
+      `"${i.status}"`,
+      `"${i.recognized_at || ''}"`,
+      `"${(i.reviewed_by_name || '').replace(/"/g, '""')}"`,
+      `"${i.description.replace(/"/g, '""')}"`,
+      `"${i.action_details.replace(/"/g, '""')}"`,
+      `"${i.expected_outcome.replace(/"/g, '""')}"`,
+      `"${(i.manager_remarks || '').replace(/"/g, '""')}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `SOH_Initiatives_Recognition_Report_${fromDate}_to_${toDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Generate AI Executive Narrative based ONLY on actual saved records
   const handleGenerateAiSummary = () => {
     setIsGeneratingAi(true);
@@ -185,30 +315,35 @@ AUTHORIZED SECURITY MANAGER: ${currentUser?.display_name || 'Department Manager'
 GENERATED ON: ${formatPhilippineDate(today)} (Philippine Standard Time)
 
 1. EXECUTIVE OVERVIEW:
-During this reporting cycle, the Security Operations department tracked ${filteredTasks.length} regional task assignments and recorded ${filteredActivities.length} daily security shift activities across Philippine corporate facilities.
+During this reporting cycle, the Security Operations department tracked ${filteredTasks.length} regional task assignments, recorded ${filteredActivities.length} daily security shift activities, and recognized ${recognizedInitiatives.length} proactive member security initiatives across Philippine corporate facilities.
 
 2. TASK DISPOSITION:
-• Completed & Verified: ${completedTasks.length} task(s) successfully signed off by Security Management.
-• Pending Manager Review: ${forReviewTasks.length} task(s) currently awaiting managerial evaluation.
+• Completed & Verified Tasks: ${completedTasks.length} task(s) signed off by Security Management.
+• Pending Manager Review: ${forReviewTasks.length} task(s) awaiting managerial review.
 • In-Progress / Active: ${pendingTasks.length} task(s) undergoing physical inspection or audit.
 • Overdue Action Items: ${overdueTasks.length} task(s) requiring immediate supervisor follow-up.
 
-3. CRITICAL ATTENTION POINTS:
+3. MEMBER INITIATIVE & RECOGNITION:
+• Officially Recognized Initiatives: ${recognizedInitiatives.length} validated proactive accomplishment(s).
+• Pending Manager Evaluation: ${pendingInitiatives.length} proposal(s) or accomplishments awaiting review.
+• Returned for Revision: ${returnedInitiatives.length} initiative(s) undergoing member clarification.
+
+4. CRITICAL ATTENTION POINTS:
 ${
   overdueTasks.length > 0
     ? overdueTasks.map((t) => `• [OVERDUE] "${t.title}" at ${t.region} assigned to ${t.assigned_user_name || 'Officer'} (Due: ${t.due_date})`).join('\n')
     : '• No overdue tasks identified within the selected timeframe. Department SLA standards maintained.'
 }
 
-4. DAILY ACCOMPLISHMENTS HIGHLIGHT:
+5. DAILY ACCOMPLISHMENTS HIGHLIGHT:
 ${
   filteredActivities.length > 0
     ? filteredActivities.slice(0, 4).map((a) => `• [${a.activity_date} - ${a.region || 'Facility'}]: ${a.title} — Conducted by ${a.author_name}`).join('\n')
     : '• No daily shift logs recorded during this period.'
 }
 
-5. COMPLIANCE & NEXT STEPS:
-Field supervisors must prioritize resolution of any flagged access or inspection discrepancies before the upcoming corporate audit cycle.
+6. COMPLIANCE & NEXT STEPS:
+Field personnel contributions must continue to adhere to corporate physical security safeguards. Manager recognition certifies operational verification.
 
 *** NOTE: This narrative was synthesized from recorded database entries. Security Manager review is required prior to external executive dissemination. ***`;
 
@@ -258,6 +393,16 @@ Field supervisors must prioritize resolution of any flagged access or inspection
           >
             <Download className="w-3.5 h-3.5 text-emerald-600" />
             <span>Export Activities (CSV)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportInitiativesCSV}
+            className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
+            title="Download CSV spreadsheet of member initiatives and recognition"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Export Initiatives (CSV)</span>
           </button>
 
           <button
@@ -330,9 +475,9 @@ Field supervisors must prioritize resolution of any flagged access or inspection
       </div>
 
       {/* Metrics Row in Date Range */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500 uppercase">Daily Activities Logged</span>
+          <span className="text-xs font-semibold text-slate-500 uppercase">Shift Activities</span>
           <div className="text-2xl font-bold text-slate-900 mt-1">{filteredActivities.length}</div>
           <span className="text-[11px] text-slate-400">In selected timeframe</span>
         </div>
@@ -352,7 +497,16 @@ Field supervisors must prioritize resolution of any flagged access or inspection
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-xs font-semibold text-emerald-700 uppercase">Completed Tasks</span>
           <div className="text-2xl font-bold text-emerald-900 mt-1">{completedTasks.length}</div>
-          <span className="text-[11px] text-emerald-700/80">Verified & closed</span>
+          <span className="text-[11px] text-emerald-700/80">Closed assignments</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
+          <span className="text-xs font-semibold text-indigo-800 uppercase flex items-center space-x-1">
+            <Award className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Recognized Initiatives</span>
+          </span>
+          <div className="text-2xl font-bold text-indigo-900 mt-1">{recognizedInitiatives.length}</div>
+          <span className="text-[11px] text-indigo-700/80">Proactive validated checks</span>
         </div>
       </div>
 
@@ -519,6 +673,194 @@ Field supervisors must prioritize resolution of any flagged access or inspection
               </table>
             </div>
           )}
+        </div>
+
+        {/* Section 4: Member Initiative & Activity Recognition Summary */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Award className="w-5 h-5 text-indigo-700" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  Member Initiative & Recognition Summary ({recognizedInitiatives.length} Officially Recognized)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Proactive security checks and self-initiated accomplishments validated by Security Management within this period
+              </p>
+            </div>
+            <span className="text-[11px] font-semibold text-indigo-900 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full self-start sm:self-auto">
+              Period Recognition
+            </span>
+          </div>
+
+          {/* Leaderboard and Regional Breakdown in 2 Columns */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            {/* Table A: Recognized Initiatives by Member */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-50 font-bold text-slate-800 border-b border-slate-200 flex items-center justify-between">
+                <span>Recognized Initiatives by Member</span>
+                <span className="text-[11px] text-slate-500 font-normal">
+                  {recognizedByMember.length} contributor(s)
+                </span>
+              </div>
+
+              {recognizedByMember.length === 0 ? (
+                <div className="p-4 text-center text-slate-400 italic">
+                  No recognized initiatives recorded in this timeframe.
+                </div>
+              ) : (
+                <table className="w-full text-left">
+                  <thead className="bg-slate-100/60 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2.5">Personnel</th>
+                      <th className="p-2.5 text-center">Recognized Total</th>
+                      <th className="p-2.5">Latest Validated Title</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {recognizedByMember.map((m, idx) => (
+                      <tr key={m.email || idx} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-semibold text-slate-900">
+                          {m.name}
+                          <span className="block text-[10px] text-slate-400 font-normal">{m.email}</span>
+                        </td>
+                        <td className="p-2.5 text-center font-bold text-indigo-700">
+                          <span className="bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                            {m.count}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-slate-700 truncate max-w-[160px]" title={m.latest}>
+                          {m.latest}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Table B: Recognized Initiatives by Region */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-50 font-bold text-slate-800 border-b border-slate-200 flex items-center justify-between">
+                <span>Recognized Initiatives by Region / Site</span>
+                <span className="text-[11px] text-slate-500 font-normal">
+                  {recognizedByRegion.length} region(s)
+                </span>
+              </div>
+
+              {recognizedByRegion.length === 0 ? (
+                <div className="p-4 text-center text-slate-400 italic">
+                  No regional initiative distributions recorded.
+                </div>
+              ) : (
+                <table className="w-full text-left">
+                  <thead className="bg-slate-100/60 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2.5">Regional Site</th>
+                      <th className="p-2.5 text-right">Recognized Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {recognizedByRegion.map((r) => (
+                      <tr key={r.region} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-medium text-slate-800">{r.region}</td>
+                        <td className="p-2.5 text-right font-bold text-emerald-700">
+                          <span className="bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            {r.count}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* Table C: Initiative Categories & Trends */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+            <div className="px-4 py-2.5 bg-slate-50 font-bold text-slate-800 border-b border-slate-200">
+              Initiative Categories & Validation Trends
+            </div>
+            {categoriesBreakdown.length === 0 ? (
+              <div className="p-4 text-center text-slate-400 italic">
+                No initiative submissions in this timeframe.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/60 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5 text-center">Total Submitted</th>
+                      <th className="p-2.5 text-center">Officially Recognized</th>
+                      <th className="p-2.5 text-right">Validation Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {categoriesBreakdown.map((c) => {
+                      const rate = c.total > 0 ? Math.round((c.recognized / c.total) * 100) : 0;
+                      return (
+                        <tr key={c.category} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-medium text-slate-900">{c.category}</td>
+                          <td className="p-2.5 text-center text-slate-700">{c.total}</td>
+                          <td className="p-2.5 text-center font-bold text-emerald-700">{c.recognized}</td>
+                          <td className="p-2.5 text-right font-mono font-medium text-slate-800">{rate}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Detailed Roster of Recognized Accomplishments */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Validated Initiative Accomplishments ({recognizedInitiatives.length})
+            </h4>
+            {recognizedInitiatives.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No recognized initiatives in this date range.</p>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2.5">Initiative Title</th>
+                      <th className="p-2.5">Category</th>
+                      <th className="p-2.5">Contributor</th>
+                      <th className="p-2.5">Facility / Site</th>
+                      <th className="p-2.5">Validation Date</th>
+                      <th className="p-2.5">Manager Commendation</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {recognizedInitiatives.map((i) => (
+                      <tr key={i.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-semibold text-slate-900">{i.title}</td>
+                        <td className="p-2.5 text-slate-600">{i.category}</td>
+                        <td className="p-2.5 text-slate-800 font-medium">{i.submitted_by_name}</td>
+                        <td className="p-2.5 text-slate-600">{i.location ? `${i.location} (${i.region})` : i.region}</td>
+                        <td className="p-2.5 font-semibold text-emerald-800">
+                          {formatPhilippineDate(i.recognized_at || i.updated_at)}
+                        </td>
+                        <td className="p-2.5 text-slate-700 max-w-xs truncate" title={i.manager_remarks}>
+                          {i.manager_remarks || 'Validated and signed off.'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Governance Notice */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500 leading-relaxed">
+            <strong>Corporate Governance Disclaimer:</strong> Initiative recognition is an administrative reporting indicator acknowledging proactive physical security vigilance and permitted routine verifications. It is maintained for corporate operations governance and does not constitute an automatic performance appraisal rating, disciplinary finding, or financial incentive.
+          </div>
         </div>
       </div>
     </div>

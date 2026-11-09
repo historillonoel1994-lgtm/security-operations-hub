@@ -17,15 +17,22 @@ import { DashboardView } from './components/DashboardView.tsx';
 import { TasksView } from './components/TasksView.tsx';
 import { ActivitiesView } from './components/ActivitiesView.tsx';
 import { ReportsView } from './components/ReportsView.tsx';
+import { InitiativesView } from './components/InitiativesView.tsx';
 import { PrintReportView } from './components/PrintReportView.tsx';
 import { LoginView } from './components/LoginView.tsx';
 import { PendingApprovalScreen } from './components/PendingApprovalScreen.tsx';
 import { CreateTaskModal } from './components/CreateTaskModal.tsx';
 import { TaskDetailModal } from './components/TaskDetailModal.tsx';
+import { EditTaskModal } from './components/EditTaskModal.tsx';
+import { ReopenTaskModal } from './components/ReopenTaskModal.tsx';
 import { CreateActivityModal } from './components/CreateActivityModal.tsx';
+import { CreateInitiativeModal } from './components/CreateInitiativeModal.tsx';
+import { EditInitiativeModal } from './components/EditInitiativeModal.tsx';
+import { InitiativeDetailModal } from './components/InitiativeDetailModal.tsx';
+import { SubmitAccomplishmentModal } from './components/SubmitAccomplishmentModal.tsx';
 import { UserApprovalsModal } from './components/UserApprovalsModal.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
-import { Task } from './types/index.ts';
+import { Task, MemberInitiative } from './types/index.ts';
 import { Shield } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -33,6 +40,14 @@ const MainAppContent: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [reopeningTask, setReopeningTask] = useState<Task | null>(null);
+
+  // Initiative States
+  const [selectedInitiative, setSelectedInitiative] = useState<MemberInitiative | null>(null);
+  const [editingInitiative, setEditingInitiative] = useState<MemberInitiative | null>(null);
+  const [accomplishmentInitiative, setAccomplishmentInitiative] = useState<MemberInitiative | null>(null);
+  const [createInitiativeOpen, setCreateInitiativeOpen] = useState(false);
 
   // Modal Visibility States
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -78,7 +93,7 @@ const MainAppContent: React.FC = () => {
         onOpenProfile={() => setProfileOpen(true)}
       />
 
-      {/* 4 Main View Tabs */}
+      {/* Navigation Tabs */}
       <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Main Content Workspace */}
@@ -88,6 +103,8 @@ const MainAppContent: React.FC = () => {
             onCreateTask={() => setCreateTaskOpen(true)}
             onSelectTask={(task) => setSelectedTask(task)}
             onNavigateToTasks={() => setActiveTab('tasks')}
+            onNavigateToInitiatives={() => setActiveTab('initiatives')}
+            onSelectInitiative={(init) => setSelectedInitiative(init)}
           />
         )}
 
@@ -95,6 +112,17 @@ const MainAppContent: React.FC = () => {
           <TasksView
             onCreateTask={() => setCreateTaskOpen(true)}
             onSelectTask={(task) => setSelectedTask(task)}
+            onOpenEditTask={(task) => setEditingTask(task)}
+            onOpenReopenTask={(task) => setReopeningTask(task)}
+          />
+        )}
+
+        {activeTab === 'initiatives' && (
+          <InitiativesView
+            onCreateInitiative={() => setCreateInitiativeOpen(true)}
+            onSelectInitiative={(init: MemberInitiative) => setSelectedInitiative(init)}
+            onOpenEditInitiative={(init: MemberInitiative) => setEditingInitiative(init)}
+            onOpenSubmitAccomplishment={(init: MemberInitiative) => setAccomplishmentInitiative(init)}
           />
         )}
 
@@ -128,12 +156,54 @@ const MainAppContent: React.FC = () => {
         task={selectedTask}
         isOpen={Boolean(selectedTask)}
         onClose={() => setSelectedTask(null)}
+        onOpenEditTask={(task) => setEditingTask(task)}
+        onOpenReopenTask={(task) => setReopeningTask(task)}
+      />
+
+      <EditTaskModal
+        task={editingTask}
+        isOpen={Boolean(editingTask)}
+        onClose={() => setEditingTask(null)}
+      />
+
+      <ReopenTaskModal
+        task={reopeningTask}
+        isOpen={Boolean(reopeningTask)}
+        onClose={() => setReopeningTask(null)}
       />
 
       <CreateActivityModal
         isOpen={createActivityOpen}
         onClose={() => setCreateActivityOpen(false)}
         onSuccess={() => setActiveTab('activities')}
+      />
+
+      <CreateInitiativeModal
+        isOpen={createInitiativeOpen}
+        onClose={() => setCreateInitiativeOpen(false)}
+        onSuccess={() => setActiveTab('initiatives')}
+      />
+
+      <InitiativeDetailModal
+        initiative={selectedInitiative}
+        isOpen={Boolean(selectedInitiative)}
+        onClose={() => setSelectedInitiative(null)}
+        onOpenEdit={(init: MemberInitiative) => setEditingInitiative(init)}
+        onOpenSubmitAccomplishment={(init: MemberInitiative) => setAccomplishmentInitiative(init)}
+      />
+
+      <EditInitiativeModal
+        initiative={editingInitiative}
+        isOpen={Boolean(editingInitiative)}
+        onClose={() => setEditingInitiative(null)}
+        onSuccess={() => setActiveTab('initiatives')}
+      />
+
+      <SubmitAccomplishmentModal
+        initiative={accomplishmentInitiative}
+        isOpen={Boolean(accomplishmentInitiative)}
+        onClose={() => setAccomplishmentInitiative(null)}
+        onSuccess={() => setActiveTab('initiatives')}
       />
 
       <UserApprovalsModal

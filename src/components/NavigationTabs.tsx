@@ -1,8 +1,9 @@
 import React from 'react';
-import { LayoutDashboard, CheckSquare, CalendarCheck, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, CalendarCheck, BarChart3, Lightbulb } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
 
-export type ActiveTab = 'dashboard' | 'tasks' | 'activities' | 'reports';
+export type ActiveTab = 'dashboard' | 'tasks' | 'activities' | 'initiatives' | 'reports';
 
 interface NavigationTabsProps {
   activeTab: ActiveTab;
@@ -13,7 +14,20 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   activeTab,
   onTabChange,
 }) => {
-  const { summary } = useData();
+  const { isManager } = useAuth();
+  const { summary, initiativeSummary } = useData();
+
+  const initiativesBadge = isManager
+    ? initiativeSummary.pendingReview > 0
+      ? initiativeSummary.pendingReview
+      : undefined
+    : initiativeSummary.returned > 0
+    ? initiativeSummary.returned
+    : undefined;
+
+  const initiativesBadgeColor = isManager
+    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+    : 'bg-rose-100 text-rose-900 border border-rose-300';
 
   const tabs: {
     id: ActiveTab;
@@ -38,6 +52,13 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
       id: 'activities',
       label: 'Daily Activities',
       icon: CalendarCheck,
+    },
+    {
+      id: 'initiatives',
+      label: isManager ? 'Initiative Reviews' : 'My Initiatives',
+      icon: Lightbulb,
+      badge: initiativesBadge,
+      badgeColor: initiativesBadgeColor,
     },
     {
       id: 'reports',
