@@ -32,8 +32,22 @@ import {
   SubmitAccomplishmentPayload,
   InitiativeSummary,
   InitiativeStatus,
+  OrganizationalUnit,
+  OrganizationalPosition,
+  OperatingRegion,
+  PersonnelAssignment,
+  PersonnelReportingHistory,
+  PerformanceTarget,
+  SupervisorSummary,
+  UpdatePersonnelAssignmentPayload,
 } from '../types/index.ts';
 import { isTaskOverdue, isTaskDueToday, getPhilippineToday } from '../lib/dateUtils.ts';
+import {
+  DEFAULT_ORGANIZATIONAL_UNITS,
+  DEFAULT_POSITIONS,
+  DEFAULT_OPERATING_REGIONS,
+} from '../lib/orgDefaults.ts';
+import { wouldCreateReportingCycle } from '../lib/performanceUtils.ts';
 import { useAuth } from './AuthContext.tsx';
 import { getSupabaseClient } from '../lib/supabaseClient.ts';
 
@@ -69,6 +83,18 @@ interface DataContextType {
   initiativeHistory: Record<string, InitiativeHistory[]>;
   initiativeSummary: InitiativeSummary;
   initiativesTableReady: boolean;
+  // Personnel Directory, Hierarchy & Live Telemetry
+  organizationalUnits: OrganizationalUnit[];
+  positions: OrganizationalPosition[];
+  operatingRegions: OperatingRegion[];
+  personnelAssignments: PersonnelAssignment[];
+  assignmentsByUserId: Record<string, PersonnelAssignment>;
+  reportingHistory: PersonnelReportingHistory[];
+  performanceTargets: PerformanceTarget[];
+  mySupervisor: SupervisorSummary | null;
+  orgTablesReady: boolean;
+  lastUpdatedAt: string;
+  realtimeStatus: 'connecting' | 'live' | 'fallback';
   loading: boolean;
   createTask: (payload: CreateTaskPayload) => Promise<Task>;
   editTask: (taskId: string, payload: EditTaskPayload) => Promise<void>;
@@ -95,13 +121,31 @@ interface DataContextType {
     remarks: string
   ) => Promise<void>;
   deleteDraftInitiative: (id: string) => Promise<void>;
-  refreshData: () => Promise<void>;
+  updatePersonnelAssignment: (payload: UpdatePersonnelAssignmentPayload) => Promise<void>;
+  createOrganizationalUnit: (payload: {
+    code: string;
+    name: string;
+    description?: string;
+  }) => Promise<OrganizationalUnit>;
+  createOrganizationalPosition: (payload: {
+    title: string;
+    unit_id: string | null;
+    hierarchy_level: number;
+    is_supervisory: boolean;
+    description?: string;
+  }) => Promise<OrganizationalPosition>;
+  createOperatingRegion: (payload: {
+    code: string;
+    name: string;
+    island_group: string;
+  }) => Promise<OperatingRegion>;
+  refreshData: (options?: { silent?: boolean }) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser, isManager, isApproved, allProfiles } = useAuth();
+  const { currentUser, isManager, isApproved, allProfiles, refreshProfiles } = useAuth();
 
   const [rawTasks, setRawTasks] = useState<Task[]>([]);
   const [rawUpdates, setRawUpdates] = useState<TaskUpdate[]>([]);
@@ -110,10 +154,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [rawInitiatives, setRawInitiatives] = useState<MemberInitiative[]>([]);
   const [rawInitiativeHistory, setRawInitiativeHistory] = useState<InitiativeHistory[]>([]);
   const [initiativesTableReady, setInitiativesTableReady] = useState<boolean>(true);
+
+  // Organizational & Personnel Directory State
+  const [organizationalUnits, setOrganizationalUnits] = useState<OrganizationalUnit[]>(
+    DEFAULT_ORGANIZATIONAL_UNITS
+  );
+  const [positions, setPositions] = useState<OrganizationalPosition[]>(DEFAULT_POSITIONS);
+  const [operatingRegions, setOperatingRegions] = useState<OperatingRegion[]>(
+    DEFAULT_OPERATING_REGIONS
+  );
+  const [personnelAssignments, setPersonnelAssignments] = useState<PersonnelAssignment[]>([]);
+  const [reportingHistory, setReportingHistory] = useState<PersonnelReportingHistory[]>([]);
+  const [performanceTargets, setPerformanceTargets] = useState<PerformanceTarget[]>([]);
+  const [mySupervisor, setMySupervisor] = useState<SupervisorSummary | null>(null);
+  const [orgTablesReady, setOrgTablesReady] = useState<boolean>(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string>(new Date().toISOString());
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'fallback'>(
+    'connecting'
+  );
   const [loading, setLoading] = useState<boolean>(true);
 
   // Main fetch function: strictly queries Supabase database tables
-  const refreshData = useCallback(async () => {
+  const refreshData = useCallback(async (options?: { silent?: boolean }) => {
     // If user is not authenticated or not approved, wipe state and return immediately
     if (!currentUser || !isApproved) {
       setRawTasks([]);
@@ -122,11 +184,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRawAuditLogs([]);
       setRawInitiatives([]);
       setRawInitiativeHistory([]);
+      setPersonnelAssignments([]);
+      setReportingHistory([]);
+      setPerformanceTargets([]);
+      setMySupervisor(null);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!options?.silent) {
+      setLoading(true);
+    }
     const supabase = getSupabaseClient();
 
     try {
@@ -201,7 +269,62 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('Initiative history fetch caught:', err.message);
       }
 
-      // 6. Fetch audit logs (only managers have permission in RLS)
+      // 6. Fetch Organizational Hierarchy & Personnel Assignments (with graceful fallback)
+      try {
+        const [unitsRes, posRes, regRes, assignRes, histRes, tgtRes] = await Promise.all([
+          supabase.from('organizational_units').select('*').order('sort_order', { ascending: true }),
+          supabase.from('positions').select('*').order('hierarchy_level', { ascending: true }),
+          supabase.from('operating_regions').select('*').order('sort_order', { ascending: true }),
+          supabase.from('personnel_assignments').select('*'),
+          supabase.from('personnel_reporting_history').select('*').order('created_at', { ascending: false }),
+          supabase.from('performance_targets').select('*'),
+        ]);
+
+        const missingOrgTable =
+          unitsRes.error?.code === '42P01' ||
+          unitsRes.error?.message?.includes('organizational_units') ||
+          assignRes.error?.code === '42P01' ||
+          assignRes.error?.message?.includes('personnel_assignments');
+
+        if (missingOrgTable) {
+          setOrgTablesReady(false);
+          setOrganizationalUnits(DEFAULT_ORGANIZATIONAL_UNITS);
+          setPositions(DEFAULT_POSITIONS);
+          setOperatingRegions(DEFAULT_OPERATING_REGIONS);
+        } else {
+          setOrgTablesReady(true);
+          if (unitsRes.data && unitsRes.data.length > 0) {
+            setOrganizationalUnits(unitsRes.data as OrganizationalUnit[]);
+          }
+          if (posRes.data && posRes.data.length > 0) {
+            setPositions(posRes.data as OrganizationalPosition[]);
+          }
+          if (regRes.data && regRes.data.length > 0) {
+            setOperatingRegions(regRes.data as OperatingRegion[]);
+          }
+          if (assignRes.data) {
+            setPersonnelAssignments(assignRes.data as PersonnelAssignment[]);
+          }
+          if (histRes.data) {
+            setReportingHistory(histRes.data as PersonnelReportingHistory[]);
+          }
+          if (tgtRes.data) {
+            setPerformanceTargets(tgtRes.data as PerformanceTarget[]);
+          }
+        }
+
+        // Fetch safe supervisor summary via RPC (returns only current user's supervisor name/title)
+        const { data: supData, error: supErr } = await supabase.rpc('get_my_supervisor_summary');
+        if (!supErr && Array.isArray(supData) && supData.length > 0) {
+          setMySupervisor(supData[0] as SupervisorSummary);
+        } else {
+          setMySupervisor(null);
+        }
+      } catch (orgErr: any) {
+        console.warn('Org directory fetch note:', orgErr.message);
+      }
+
+      // 7. Fetch audit logs (only managers have permission in RLS)
       if (isManager) {
         const { data: auditData, error: auditErr } = await supabase
           .from('audit_logs')
@@ -215,16 +338,86 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setRawAuditLogs([]);
       }
+
+      setLastUpdatedAt(new Date().toISOString());
     } catch (err: any) {
       console.error('Network exception fetching database records:', err.message);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, [currentUser, isApproved, isManager]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  // Live Department-Level Supabase Realtime Subscriptions (single debounced channel)
+  useEffect(() => {
+    if (!currentUser || !isApproved) {
+      setRealtimeStatus('fallback');
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleSilentRefresh = (includeProfiles = false) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (includeProfiles) {
+          refreshProfiles();
+        }
+        refreshData({ silent: true });
+      }, 450);
+    };
+
+    const channel = supabase
+      .channel(`soh-live-ops-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        () => scheduleSilentRefresh(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_updates' },
+        () => scheduleSilentRefresh(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'activities' },
+        () => scheduleSilentRefresh(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'member_initiatives' },
+        () => scheduleSilentRefresh(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'personnel_assignments' },
+        () => scheduleSilentRefresh(false)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => scheduleSilentRefresh(true)
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('live');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRealtimeStatus('fallback');
+        }
+      });
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, isApproved, refreshData, refreshProfiles]);
 
   // Strict role segregation filtering:
   // - If user is unapproved or inactive: ZERO tasks or activities.
@@ -1112,6 +1305,287 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await refreshData();
   };
 
+  // Map assignments by user ID for fast lookup
+  const assignmentsByUserId = useMemo(() => {
+    const map: Record<string, PersonnelAssignment> = {};
+    for (const a of personnelAssignments) {
+      map[a.profile_user_id] = a;
+    }
+    return map;
+  }, [personnelAssignments]);
+
+  // -------------------------------------------------------------------------------------
+  // PERSONNEL DIRECTORY & ORGANIZATIONAL HIERARCHY ACTIONS (MANAGER ONLY)
+  // -------------------------------------------------------------------------------------
+
+  const updatePersonnelAssignment = async (
+    payload: UpdatePersonnelAssignmentPayload
+  ): Promise<void> => {
+    if (!isManager || !currentUser || !isApproved) {
+      throw new Error(
+        'Access Denied: Only an approved Security Manager can modify personnel assignments or reporting lines.'
+      );
+    }
+    if (!payload.change_reason.trim()) {
+      throw new Error('Please provide an administrative reason for this personnel assignment change.');
+    }
+
+    // Prevent circular reporting & self-supervision
+    if (
+      payload.reports_to_user_id &&
+      wouldCreateReportingCycle(
+        payload.profile_user_id,
+        payload.reports_to_user_id,
+        assignmentsByUserId
+      )
+    ) {
+      throw new Error(
+        'Invalid reporting hierarchy: Self-supervision or circular reporting relationships (e.g., reporting to a subordinate) are strictly prohibited.'
+      );
+    }
+
+    const targetUser = allProfiles.find((p) => p.id === payload.profile_user_id);
+    if (!targetUser) {
+      throw new Error('Personnel profile not found.');
+    }
+
+    const prevAssign = assignmentsByUserId[payload.profile_user_id];
+    const nowIso = new Date().toISOString();
+    const supabase = getSupabaseClient();
+
+    // Upsert into personnel_assignments
+    const upsertRecord: PersonnelAssignment = {
+      profile_user_id: payload.profile_user_id,
+      organizational_unit_id: payload.organizational_unit_id,
+      position_id: payload.position_id,
+      reports_to_user_id: payload.reports_to_user_id,
+      region_id: payload.region_id,
+      assigned_site: payload.assigned_site.trim() || null,
+      employment_category: payload.employment_category,
+      operational_status: payload.operational_status,
+      effective_from: payload.effective_from || getPhilippineToday(),
+      notes: payload.notes?.trim() || undefined,
+      updated_by: currentUser.id,
+      updated_at: nowIso,
+    };
+
+    const { error: upsertErr } = await supabase
+      .from('personnel_assignments')
+      .upsert(upsertRecord, { onConflict: 'profile_user_id' });
+
+    if (upsertErr) {
+      if (upsertErr.code === '42P01' || upsertErr.message?.includes('personnel_assignments')) {
+        throw new Error(
+          'Database migration required: Run "supabase/migration_personnel_hierarchy.sql" in your Supabase SQL Editor first.'
+        );
+      }
+      throw upsertErr;
+    }
+
+    // Update profiles.regional_assignment or explicit application role if authorized by Manager
+    const profilePatch: Record<string, any> = { updated_at: nowIso };
+    if (payload.regional_assignment_label !== undefined) {
+      profilePatch.regional_assignment = payload.regional_assignment_label;
+    }
+    if (
+      payload.app_role &&
+      payload.app_role !== targetUser.role &&
+      targetUser.id !== currentUser.id
+    ) {
+      profilePatch.role = payload.app_role;
+    }
+
+    if (Object.keys(profilePatch).length > 1) {
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .update(profilePatch)
+        .eq('id', payload.profile_user_id);
+      if (profErr) throw profErr;
+      await refreshProfiles();
+    }
+
+    // Record immutable personnel_reporting_history entry so historical transfers are tracked
+    try {
+      await supabase.from('personnel_reporting_history').insert({
+        id: `prh-${Date.now().toString().slice(-7)}`,
+        profile_user_id: payload.profile_user_id,
+        previous_unit_id: prevAssign?.organizational_unit_id || null,
+        new_unit_id: payload.organizational_unit_id,
+        previous_position_id: prevAssign?.position_id || null,
+        new_position_id: payload.position_id,
+        previous_region_id: prevAssign?.region_id || null,
+        new_region_id: payload.region_id,
+        previous_assigned_site: prevAssign?.assigned_site || null,
+        new_assigned_site: payload.assigned_site.trim() || null,
+        previous_reports_to_user_id: prevAssign?.reports_to_user_id || null,
+        new_reports_to_user_id: payload.reports_to_user_id,
+        previous_operational_status: prevAssign?.operational_status || null,
+        new_operational_status: payload.operational_status,
+        change_reason: payload.change_reason.trim(),
+        changed_by: currentUser.id,
+        changed_by_name: currentUser.display_name,
+        effective_date: payload.effective_from || getPhilippineToday(),
+        created_at: nowIso,
+      });
+
+      await supabase.from('audit_logs').insert({
+        id: `aud-${Date.now()}`,
+        actor_id: currentUser.id,
+        actor_name: currentUser.display_name,
+        action: 'UPDATE_PERSONNEL_ASSIGNMENT',
+        record_type: 'personnel',
+        record_id: payload.profile_user_id,
+        details: `Updated org assignment for ${targetUser.display_name} (${targetUser.email}). Reason: ${payload.change_reason.trim()}`,
+        created_at: nowIso,
+      });
+    } catch (histErr: any) {
+      console.warn('Personnel reporting history log warning:', histErr.message);
+    }
+
+    await refreshData({ silent: true });
+  };
+
+  const createOrganizationalUnit = async (payload: {
+    code: string;
+    name: string;
+    description?: string;
+  }): Promise<OrganizationalUnit> => {
+    if (!isManager || !currentUser || !isApproved) {
+      throw new Error('Unauthorized: Only Security Managers can configure organizational units.');
+    }
+    const cleanCode = payload.code.trim().toUpperCase();
+    const cleanName = payload.name.trim();
+    if (!cleanCode || !cleanName) {
+      throw new Error('Unit Code and Unit Name are required.');
+    }
+
+    const newUnit: OrganizationalUnit = {
+      id: `unit-${cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`,
+      code: cleanCode,
+      name: cleanName,
+      description: payload.description?.trim() || '',
+      parent_unit_id: 'unit-exec',
+      sort_order: organizationalUnits.length + 1,
+      is_active: true,
+    };
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('organizational_units')
+      .insert(newUnit)
+      .select()
+      .single();
+    if (error) throw error;
+
+    await supabase.from('audit_logs').insert({
+      id: `aud-${Date.now()}`,
+      actor_id: currentUser.id,
+      actor_name: currentUser.display_name,
+      action: 'CREATE_ORG_UNIT',
+      record_type: 'organization',
+      record_id: newUnit.id,
+      details: `Added organizational unit "${newUnit.name}" (${newUnit.code})`,
+      created_at: new Date().toISOString(),
+    });
+
+    await refreshData({ silent: true });
+    return (data as OrganizationalUnit) || newUnit;
+  };
+
+  const createOrganizationalPosition = async (payload: {
+    title: string;
+    unit_id: string | null;
+    hierarchy_level: number;
+    is_supervisory: boolean;
+    description?: string;
+  }): Promise<OrganizationalPosition> => {
+    if (!isManager || !currentUser || !isApproved) {
+      throw new Error('Unauthorized: Only Security Managers can configure positions.');
+    }
+    const cleanTitle = payload.title.trim();
+    if (!cleanTitle) {
+      throw new Error('Position title is required.');
+    }
+
+    const newPos: OrganizationalPosition = {
+      id: `pos-${Date.now().toString().slice(-6)}`,
+      title: cleanTitle,
+      unit_id: payload.unit_id,
+      hierarchy_level: payload.hierarchy_level,
+      is_supervisory: payload.is_supervisory,
+      description: payload.description?.trim() || '',
+      is_active: true,
+    };
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('positions')
+      .insert(newPos)
+      .select()
+      .single();
+    if (error) throw error;
+
+    await supabase.from('audit_logs').insert({
+      id: `aud-${Date.now()}`,
+      actor_id: currentUser.id,
+      actor_name: currentUser.display_name,
+      action: 'CREATE_ORG_POSITION',
+      record_type: 'organization',
+      record_id: newPos.id,
+      details: `Added position "${newPos.title}"`,
+      created_at: new Date().toISOString(),
+    });
+
+    await refreshData({ silent: true });
+    return (data as OrganizationalPosition) || newPos;
+  };
+
+  const createOperatingRegion = async (payload: {
+    code: string;
+    name: string;
+    island_group: string;
+  }): Promise<OperatingRegion> => {
+    if (!isManager || !currentUser || !isApproved) {
+      throw new Error('Unauthorized: Only Security Managers can configure operating regions.');
+    }
+    const cleanCode = payload.code.trim().toUpperCase();
+    const cleanName = payload.name.trim();
+    if (!cleanCode || !cleanName) {
+      throw new Error('Region Code and Name are required.');
+    }
+
+    const newReg: OperatingRegion = {
+      id: `reg-${cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`,
+      code: cleanCode,
+      name: cleanName,
+      island_group: payload.island_group || 'Luzon',
+      sort_order: operatingRegions.length + 1,
+      is_active: true,
+    };
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('operating_regions')
+      .insert(newReg)
+      .select()
+      .single();
+    if (error) throw error;
+
+    await supabase.from('audit_logs').insert({
+      id: `aud-${Date.now()}`,
+      actor_id: currentUser.id,
+      actor_name: currentUser.display_name,
+      action: 'CREATE_OPERATING_REGION',
+      record_type: 'organization',
+      record_id: newReg.id,
+      details: `Added operating region "${newReg.name}" (${newReg.code})`,
+      created_at: new Date().toISOString(),
+    });
+
+    await refreshData({ silent: true });
+    return (data as OperatingRegion) || newReg;
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -1126,6 +1600,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         initiativeHistory: initiativeHistoryById,
         initiativeSummary,
         initiativesTableReady,
+        organizationalUnits,
+        positions,
+        operatingRegions,
+        personnelAssignments,
+        assignmentsByUserId,
+        reportingHistory,
+        performanceTargets,
+        mySupervisor,
+        orgTablesReady,
+        lastUpdatedAt,
+        realtimeStatus,
         loading,
         createTask,
         editTask,
@@ -1139,6 +1624,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         submitInitiativeAccomplishment,
         reviewInitiative,
         deleteDraftInitiative,
+        updatePersonnelAssignment,
+        createOrganizationalUnit,
+        createOrganizationalPosition,
+        createOperatingRegion,
         refreshData,
       }}
     >

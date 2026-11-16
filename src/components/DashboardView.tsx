@@ -1,27 +1,54 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
-import { Task, TaskStatus } from '../types/index.ts';
-import { TASK_STATUS_CONFIG, TASK_PRIORITIES, PHILIPPINE_REGIONS } from '../lib/philippinesRegions.ts';
-import { formatPhilippineDate, getDueStatusLabel, getPhilippineToday } from '../lib/dateUtils.ts';
+import {
+  Task,
+  MemberInitiative,
+  DateRangePreset,
+} from '../types/index.ts';
+import {
+  TASK_STATUS_CONFIG,
+  PHILIPPINE_REGIONS,
+} from '../lib/philippinesRegions.ts';
+import {
+  formatPhilippineDate,
+  formatPhilippineDateTime,
+  getDueStatusLabel,
+  getPhilippineToday,
+  isTaskDueToday,
+  isTaskOverdue,
+} from '../lib/dateUtils.ts';
+import {
+  computePersonnelPerformance,
+  computeUnitPerformanceSummaries,
+  computeRegionalPerformanceSummaries,
+  computeMonthlyTrendBuckets,
+  computeKpiFraction,
+  getDateRangeForPreset,
+  isTaskInReportingCohort,
+  isWithinDateWindow,
+  isCompletedOnTime,
+} from '../lib/performanceUtils.ts';
 import {
   CheckSquare,
-  Clock,
   AlertTriangle,
   RotateCcw,
   CheckCircle2,
   Plus,
   Search,
-  Filter,
   Eye,
-  Building2,
   Calendar,
-  AlertCircle,
-  FileSpreadsheet,
   Award,
   Lightbulb,
+  Users,
+  UserCheck,
+  UserX,
+  RefreshCw,
+  TrendingUp,
+  Clock,
+  Building2,
+  MapPin,
 } from 'lucide-react';
-import { MemberInitiative } from '../types/index.ts';
 
 interface DashboardViewProps {
   onCreateTask: () => void;
@@ -29,6 +56,10 @@ interface DashboardViewProps {
   onNavigateToTasks: () => void;
   onNavigateToInitiatives?: () => void;
   onSelectInitiative?: (initiative: MemberInitiative) => void;
+  onNavigateToPersonnel?: () => void;
+  onNavigateToMyPerformance?: () => void;
+  onOpenApprovals?: () => void;
+  onViewPersonnelPerformance?: (userId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -37,20 +68,205 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToTasks,
   onNavigateToInitiatives,
   onSelectInitiative,
+  onNavigateToPersonnel,
+  onNavigateToMyPerformance,
+  onOpenApprovals,
+  onViewPersonnelPerformance,
 }) => {
-  const { currentUser, isManager } = useAuth();
-  const { tasks, summary, initiatives, initiativeSummary } = useData();
+  const { currentUser, isManager, allProfiles } = useAuth();
+  const {
+    tasks,
+    allDepartmentTasks,
+    taskUpdates,
+    activities,
+    summary,
+    initiatives,
+    allDepartmentInitiatives,
+    initiativeHistory,
+    initiativeSummary,
+    organizationalUnits,
+    positions,
+    operatingRegions,
+    assignmentsByUserId,
+    lastUpdatedAt,
+    realtimeStatus,
+    refreshData,
+  } = useData();
 
-  // Search and Filter State
+  // Manager Date Filter State
+  const [preset, setPreset] = useState<DateRangePreset>('month');
+  const [customFrom, setCustomFrom] = useState<string>(() => getDateRangeForPreset('month').fromDate);
+  const [customTo, setCustomTo] = useState<string>(() => getDateRangeForPreset('month').toDate);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { fromDate, toDate } = useMemo(() => {
+    if (preset === 'custom') return { fromDate: customFrom, toDate: customTo };
+    return getDateRangeForPreset(preset);
+  }, [preset, customFrom, customTo]);
+
+  // Task Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
 
-  // Filter tasks
+  const profilesById = useMemo(() => {
+    const map: Record<string, typeof allProfiles[number]> = {};
+    for (const p of allProfiles) map[p.id] = p;
+    return map;
+  }, [allProfiles]);
+
+  // Manager Command Metrics (Live Supabase Calculations)
+  const managerCommandMetrics = useMemo(() => {
+    if (!isManager) return null;
+
+    const totalRegisteredPersonnel = allProfiles.length;
+    const approvedActiveUsers = allProfiles.filter((p) => p.approved && p.active);
+    const pendingApprovals = allProfiles.filter((p) => !p.approved).length;
+
+    const cohortTasks = allDepartmentTasks.filter((t) =>
+      isTaskInReportingCohort(t, fromDate, toDate)
+    );
+    const activeTasks = cohortTasks.filter((t) => t.status !== 'completed');
+    const dueToday = activeTasks.filter((t) => isTaskDueToday(t.due_date, t.status)).length;
+    const overdue = activeTasks.filter((t) => isTaskOverdue(t.due_date, t.status)).length;
+    const forReview = activeTasks.filter((t) => t.status === 'for_review').length;
+    const completed = cohortTasks.filter((t) => t.status === 'completed');
+    const completedWithDue = completed.filter((t) => Boolean(t.due_date));
+    const onTimeCompleted = completedWithDue.filter((t) => isCompletedOnTime(t));
+
+    const returnedTasks = cohortTasks.filter((t) => t.status === 'returned').length;
+    const returnedInitiatives = allDepartmentInitiatives.filter(
+      (i) => i.status === 'returned'
+    ).length;
+
+    const recognizedInitiatives = allDepartmentInitiatives.filter(
+      (i) =>
+        i.status === 'recognized' &&
+        Boolean(i.recognized_at) &&
+        isWithinDateWindow(i.recognized_at, fromDate, toDate)
+    ).length;
+
+    // Personnel workload calculations (open assignments across all approved active staff)
+    const personnelWithoutCurrentAssignments = approvedActiveUsers.filter(
+      (u) => !allDepartmentTasks.some((t) => t.assigned_to === u.id && t.status !== 'completed')
+    );
+    const personnelWithOverdueAssignments = approvedActiveUsers.filter((u) =>
+      allDepartmentTasks.some(
+        (t) => t.assigned_to === u.id && isTaskOverdue(t.due_date, t.status)
+      )
+    );
+
+    const completionRate = computeKpiFraction(completed.length, cohortTasks.length);
+    const onTimeRate = computeKpiFraction(onTimeCompleted.length, completedWithDue.length);
+
+    return {
+      totalRegisteredPersonnel,
+      activeApprovedPersonnel: approvedActiveUsers.length,
+      pendingApprovals,
+      totalActiveTasks: activeTasks.length,
+      dueToday,
+      overdue,
+      forReview,
+      completed: completed.length,
+      recognizedInitiatives,
+      returnedForRevision: returnedTasks + returnedInitiatives,
+      personnelWithoutAssignmentsList: personnelWithoutCurrentAssignments,
+      personnelWithOverdueList: personnelWithOverdueAssignments,
+      completionRate,
+      onTimeRate,
+    };
+  }, [
+    isManager,
+    allProfiles,
+    allDepartmentTasks,
+    allDepartmentInitiatives,
+    fromDate,
+    toDate,
+  ]);
+
+  // Personnel & Team summaries for Department Performance Overview
+  const personnelRecords = useMemo(() => {
+    if (!isManager) return [];
+    return allProfiles.map((user) =>
+      computePersonnelPerformance({
+        user,
+        assignment: assignmentsByUserId[user.id] || null,
+        units: organizationalUnits,
+        positions,
+        regions: operatingRegions,
+        profilesById,
+        assignmentsById: assignmentsByUserId,
+        tasks: allDepartmentTasks,
+        taskUpdates,
+        activities,
+        initiatives: allDepartmentInitiatives,
+        initiativeHistory,
+        fromDate,
+        toDate,
+      })
+    );
+  }, [
+    isManager,
+    allProfiles,
+    assignmentsByUserId,
+    organizationalUnits,
+    positions,
+    operatingRegions,
+    profilesById,
+    allDepartmentTasks,
+    taskUpdates,
+    activities,
+    allDepartmentInitiatives,
+    initiativeHistory,
+    fromDate,
+    toDate,
+  ]);
+
+  const unitSummaries = useMemo(() => {
+    if (!isManager) return [];
+    return computeUnitPerformanceSummaries({
+      units: organizationalUnits,
+      personnelRecords,
+    });
+  }, [isManager, organizationalUnits, personnelRecords]);
+
+  const regionalSummaries = useMemo(() => {
+    if (!isManager) return [];
+    return computeRegionalPerformanceSummaries({
+      regions: operatingRegions,
+      personnelRecords,
+      tasks: allDepartmentTasks,
+      taskUpdates,
+      activities,
+      initiatives: allDepartmentInitiatives,
+      fromDate,
+      toDate,
+    });
+  }, [
+    isManager,
+    operatingRegions,
+    personnelRecords,
+    allDepartmentTasks,
+    taskUpdates,
+    activities,
+    allDepartmentInitiatives,
+    fromDate,
+    toDate,
+  ]);
+
+  const monthlyTrends = useMemo(() => {
+    if (!isManager) return [];
+    return computeMonthlyTrendBuckets({
+      tasks: allDepartmentTasks,
+      initiatives: allDepartmentInitiatives,
+      monthsCount: 4,
+    });
+  }, [isManager, allDepartmentTasks, allDepartmentInitiatives]);
+
+  // Filter tasks table
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
-      // Search
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
         const matchesTitle = task.title.toLowerCase().includes(query);
@@ -62,23 +278,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
       }
 
-      // Status Filter
       if (statusFilter === 'overdue') {
         const dueInfo = getDueStatusLabel(task.due_date, task.status);
         if (!dueInfo.isOverdue) return false;
       } else if (statusFilter === 'due_today') {
         const dueInfo = getDueStatusLabel(task.due_date, task.status);
         if (!dueInfo.isToday) return false;
+      } else if (statusFilter === 'active') {
+        if (task.status === 'completed') return false;
       } else if (statusFilter !== 'all') {
         if (task.status !== statusFilter) return false;
       }
 
-      // Region Filter
       if (regionFilter !== 'all' && task.region !== regionFilter) {
         return false;
       }
 
-      // Priority Filter
       if (priorityFilter !== 'all' && task.priority !== priorityFilter) {
         return false;
       }
@@ -87,18 +302,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   }, [tasks, searchTerm, statusFilter, regionFilter, priorityFilter]);
 
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshData({ silent: true });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header & Quick Action */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Header & Live Sync Controls */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Security Command Dashboard
+            {isManager ? 'Security Manager Command Dashboard' : 'Security Operations Dashboard'}
           </h1>
           <p className="text-xs sm:text-sm text-slate-500">
             {isManager
-              ? 'Department overview of regional security inspections, assignments, and reviews'
-              : 'Your assigned security inspections, investigations, and follow-ups'}
+              ? 'Live department-wide oversight of personnel, regional tasks, approvals, and initiatives'
+              : 'Your assigned security inspections, investigations, and proactive contributions'}
             {' • '}
             <span className="font-medium text-slate-700">
               Philippine Time: {formatPhilippineDate(getPhilippineToday())}
@@ -106,117 +330,592 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
 
-        {isManager && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Live Timestamp & Refresh */}
+          <div className="px-3 py-2 bg-white border border-slate-200 rounded-lg flex items-center space-x-2 text-slate-600 shadow-xs">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                realtimeStatus === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+              }`}
+              title={
+                realtimeStatus === 'live'
+                  ? 'Live Supabase Realtime connected'
+                  : 'Polling / Manual sync active'
+              }
+            />
+            <span>
+              Last Updated: <strong>{formatPhilippineDateTime(lastUpdatedAt)}</strong>
+            </span>
+          </div>
+
           <button
             type="button"
-            onClick={onCreateTask}
-            className="inline-flex items-center justify-center px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg shadow-sm transition space-x-2"
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold rounded-lg shadow-xs transition space-x-1.5 cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ Create Task</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
           </button>
-        )}
-      </div>
 
-      {/* 5 Small Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        {/* Card 1: Active Tasks */}
-        <div
-          onClick={() => setStatusFilter('all')}
-          className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition cursor-pointer"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Active Tasks
-            </span>
-            <CheckSquare className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            {summary.activeTasks}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Incomplete assignments</div>
-        </div>
-
-        {/* Card 2: Due Today */}
-        <div
-          onClick={() => setStatusFilter('due_today')}
-          className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
-            summary.dueToday > 0
-              ? 'bg-amber-50/80 border-amber-300'
-              : 'bg-white border-slate-200'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-amber-800 uppercase tracking-wider">
-              Due Today
-            </span>
-            <Calendar className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-amber-900">
-            {summary.dueToday}
-          </div>
-          <div className="text-[11px] text-amber-700/80 mt-0.5">Deadline is today</div>
-        </div>
-
-        {/* Card 3: Overdue */}
-        <div
-          onClick={() => setStatusFilter('overdue')}
-          className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
-            summary.overdue > 0
-              ? 'bg-rose-50/80 border-rose-300'
-              : 'bg-white border-slate-200'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-rose-800 uppercase tracking-wider">
-              Overdue
-            </span>
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-rose-900">
-            {summary.overdue}
-          </div>
-          <div className="text-[11px] text-rose-700/80 mt-0.5">Past due date</div>
-        </div>
-
-        {/* Card 4: For Review */}
-        <div
-          onClick={() => setStatusFilter('for_review')}
-          className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
-            summary.forReview > 0
-              ? 'bg-indigo-50/80 border-indigo-300'
-              : 'bg-white border-slate-200'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-indigo-800 uppercase tracking-wider">
-              For Review
-            </span>
-            <RotateCcw className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-indigo-900">
-            {summary.forReview}
-          </div>
-          <div className="text-[11px] text-indigo-700/80 mt-0.5">Awaiting Manager sign-off</div>
-        </div>
-
-        {/* Card 5: Completed */}
-        <div
-          onClick={() => setStatusFilter('completed')}
-          className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition cursor-pointer col-span-2 sm:col-span-1"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Completed
-            </span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            {summary.completed}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-0.5">Officially closed</div>
+          {isManager ? (
+            <button
+              type="button"
+              onClick={onCreateTask}
+              className="inline-flex items-center justify-center px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm transition space-x-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Task</span>
+            </button>
+          ) : (
+            onNavigateToMyPerformance && (
+              <button
+                type="button"
+                onClick={onNavigateToMyPerformance}
+                className="inline-flex items-center justify-center px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg shadow-sm transition space-x-1.5 cursor-pointer"
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span>View My Performance</span>
+              </button>
+            )
+          )}
         </div>
       </div>
+
+      {/* =====================================================================
+          MANAGER COMMAND DASHBOARD: DATE FILTERS & 12 SUMMARY CARDS
+         ===================================================================== */}
+      {isManager && managerCommandMetrics ? (
+        <>
+          {/* Reporting Date Filter Strip */}
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+            <div className="flex items-center space-x-2 text-slate-700">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              <span>
+                Reporting Cohort:{' '}
+                <strong>
+                  {formatPhilippineDate(fromDate)} – {formatPhilippineDate(toDate)}
+                </strong>
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(['today', 'week', 'month', 'quarter', 'custom'] as DateRangePreset[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPreset(p)}
+                  className={`px-2.5 py-1 rounded-md font-semibold capitalize transition cursor-pointer ${
+                    preset === p
+                      ? 'bg-blue-700 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {p === 'week'
+                    ? 'This Week'
+                    : p === 'month'
+                    ? 'This Month'
+                    : p === 'quarter'
+                    ? 'This Quarter'
+                    : p === 'custom'
+                    ? 'Custom Range'
+                    : 'Today'}
+                </button>
+              ))}
+
+              {preset === 'custom' && (
+                <div className="flex items-center space-x-1 ml-1">
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="px-2 py-1 border border-slate-300 rounded text-xs"
+                  />
+                  <span>to</span>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="px-2 py-1 border border-slate-300 rounded text-xs"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 12 Live Manager Summary Cards (One-Click Navigation) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {/* 1. Total Registered Personnel */}
+            <div
+              onClick={() => onNavigateToPersonnel?.()}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 uppercase">
+                <span>Registered Staff</span>
+                <Users className="w-3.5 h-3.5 text-slate-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-slate-900">
+                {managerCommandMetrics.totalRegisteredPersonnel}
+              </div>
+              <div className="text-[10px] text-blue-700 mt-0.5 font-medium">Open Directory →</div>
+            </div>
+
+            {/* 2. Active Approved Personnel */}
+            <div
+              onClick={() => onNavigateToPersonnel?.()}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-700 uppercase">
+                <span>Active Approved</span>
+                <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-emerald-900">
+                {managerCommandMetrics.activeApprovedPersonnel}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Authorized accounts</div>
+            </div>
+
+            {/* 3. Pending Account Approvals */}
+            <div
+              onClick={() => onOpenApprovals?.()}
+              className={`p-3.5 rounded-xl border shadow-xs transition cursor-pointer ${
+                managerCommandMetrics.pendingApprovals > 0
+                  ? 'bg-amber-50 border-amber-300 hover:border-amber-500'
+                  : 'bg-white border-slate-200 hover:border-blue-400'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-amber-800 uppercase">
+                <span>Pending Approvals</span>
+                <Clock className="w-3.5 h-3.5 text-amber-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-amber-900">
+                {managerCommandMetrics.pendingApprovals}
+              </div>
+              <div className="text-[10px] text-amber-800 mt-0.5 font-medium">Review Accounts →</div>
+            </div>
+
+            {/* 4. Total Active Tasks */}
+            <div
+              onClick={() => setStatusFilter('active')}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-blue-700 uppercase">
+                <span>Active Tasks</span>
+                <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-slate-900">
+                {managerCommandMetrics.totalActiveTasks}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Open in cohort</div>
+            </div>
+
+            {/* 5. Tasks Due Today */}
+            <div
+              onClick={() => setStatusFilter('due_today')}
+              className={`p-3.5 rounded-xl border shadow-xs transition cursor-pointer ${
+                managerCommandMetrics.dueToday > 0
+                  ? 'bg-amber-50/70 border-amber-300'
+                  : 'bg-white border-slate-200 hover:border-blue-400'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-amber-800 uppercase">
+                <span>Due Today</span>
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-amber-900">
+                {managerCommandMetrics.dueToday}
+              </div>
+              <div className="text-[10px] text-amber-700 mt-0.5">PHT deadline today</div>
+            </div>
+
+            {/* 6. Overdue Tasks */}
+            <div
+              onClick={() => setStatusFilter('overdue')}
+              className={`p-3.5 rounded-xl border shadow-xs transition cursor-pointer ${
+                managerCommandMetrics.overdue > 0
+                  ? 'bg-rose-50 border-rose-300'
+                  : 'bg-white border-slate-200 hover:border-blue-400'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-rose-800 uppercase">
+                <span>Overdue Tasks</span>
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-rose-900">
+                {managerCommandMetrics.overdue}
+              </div>
+              <div className="text-[10px] text-rose-700 mt-0.5 font-medium">Filter Overdue →</div>
+            </div>
+
+            {/* 7. Tasks For Review */}
+            <div
+              onClick={() => setStatusFilter('for_review')}
+              className={`p-3.5 rounded-xl border shadow-xs transition cursor-pointer ${
+                managerCommandMetrics.forReview > 0
+                  ? 'bg-indigo-50 border-indigo-300'
+                  : 'bg-white border-slate-200 hover:border-blue-400'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-indigo-800 uppercase">
+                <span>Tasks For Review</span>
+                <Eye className="w-3.5 h-3.5 text-indigo-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-indigo-900">
+                {managerCommandMetrics.forReview}
+              </div>
+              <div className="text-[10px] text-indigo-700 mt-0.5">Awaiting sign-off</div>
+            </div>
+
+            {/* 8. Completed Tasks */}
+            <div
+              onClick={() => setStatusFilter('completed')}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-700 uppercase">
+                <span>Completed Tasks</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-emerald-900">
+                {managerCommandMetrics.completed}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Verified & closed</div>
+            </div>
+
+            {/* 9. Recognized Member Initiatives */}
+            <div
+              onClick={() => onNavigateToInitiatives?.()}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-amber-700 uppercase">
+                <span>Recognized Init.</span>
+                <Award className="w-3.5 h-3.5 text-amber-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-amber-900">
+                {managerCommandMetrics.recognizedInitiatives}
+              </div>
+              <div className="text-[10px] text-amber-700 mt-0.5 font-medium">Open Initiatives →</div>
+            </div>
+
+            {/* 10. Returned for Revision */}
+            <div
+              onClick={() => setStatusFilter('returned')}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-rose-700 uppercase">
+                <span>Returned Revision</span>
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-slate-900">
+                {managerCommandMetrics.returnedForRevision}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Tasks + initiatives</div>
+            </div>
+
+            {/* 11. Personnel Without Current Assignments */}
+            <div
+              onClick={() => onNavigateToPersonnel?.()}
+              className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-blue-400 transition cursor-pointer"
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 uppercase">
+                <span>Unassigned Staff</span>
+                <UserX className="w-3.5 h-3.5 text-slate-500" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-slate-900">
+                {managerCommandMetrics.personnelWithoutAssignmentsList.length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">No open tasks</div>
+            </div>
+
+            {/* 12. Personnel With Overdue Assignments */}
+            <div
+              onClick={() => {
+                if (
+                  managerCommandMetrics.personnelWithOverdueList.length === 1 &&
+                  onViewPersonnelPerformance
+                ) {
+                  onViewPersonnelPerformance(managerCommandMetrics.personnelWithOverdueList[0].id);
+                } else {
+                  onNavigateToPersonnel?.();
+                }
+              }}
+              className={`p-3.5 rounded-xl border shadow-xs transition cursor-pointer ${
+                managerCommandMetrics.personnelWithOverdueList.length > 0
+                  ? 'bg-rose-50/70 border-rose-300'
+                  : 'bg-white border-slate-200 hover:border-blue-400'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-semibold text-rose-800 uppercase">
+                <span>Staff w/ Overdue</span>
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+              </div>
+              <div className="mt-1.5 text-2xl font-bold text-rose-900">
+                {managerCommandMetrics.personnelWithOverdueList.length}
+              </div>
+              <div className="text-[10px] text-rose-700 mt-0.5 font-medium">Review Staff →</div>
+            </div>
+          </div>
+
+          {/* DEPARTMENT PERFORMANCE OVERVIEW */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
+            {/* Column 1: KPI Rates & Monthly Trends */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-sm text-slate-900">Department Performance Overview</h2>
+                <button
+                  type="button"
+                  onClick={() => onNavigateToPersonnel?.()}
+                  className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                >
+                  Team View →
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">
+                    Completion Rate
+                  </span>
+                  <div className="text-base font-bold text-slate-900 mt-0.5">
+                    {managerCommandMetrics.completionRate.display}
+                  </div>
+                </div>
+                <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg">
+                  <span className="text-[10px] text-emerald-800 uppercase font-bold block">
+                    On-Time Completion
+                  </span>
+                  <div className="text-base font-bold text-emerald-900 mt-0.5">
+                    {managerCommandMetrics.onTimeRate.display}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-bold text-slate-700 uppercase">
+                  Monthly Operational Trend (Completed / Overdue / Review / Initiatives)
+                </div>
+                <div className="space-y-2">
+                  {monthlyTrends.map((m) => (
+                    <div key={m.monthKey} className="p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between font-semibold text-slate-800 mb-1">
+                        <span>{m.label}</span>
+                        <span className="text-[10px] text-slate-500">
+                          {m.completedTasks} Done • {m.overdueTasks} Overdue • {m.pendingReviews} Review •{' '}
+                          {m.recognizedInitiatives} Recog.
+                        </span>
+                      </div>
+                      <div className="flex h-2 rounded-full overflow-hidden bg-slate-200">
+                        {m.completedTasks > 0 && (
+                          <div
+                            className="bg-emerald-600"
+                            style={{ width: `${Math.min(100, m.completedTasks * 12)}%` }}
+                            title={`Completed: ${m.completedTasks}`}
+                          />
+                        )}
+                        {m.pendingReviews > 0 && (
+                          <div
+                            className="bg-amber-500"
+                            style={{ width: `${Math.min(100, m.pendingReviews * 12)}%` }}
+                            title={`Pending Review: ${m.pendingReviews}`}
+                          />
+                        )}
+                        {m.overdueTasks > 0 && (
+                          <div
+                            className="bg-rose-600"
+                            style={{ width: `${Math.min(100, m.overdueTasks * 12)}%` }}
+                            title={`Overdue: ${m.overdueTasks}`}
+                          />
+                        )}
+                        {m.recognizedInitiatives > 0 && (
+                          <div
+                            className="bg-indigo-600"
+                            style={{ width: `${Math.min(100, m.recognizedInitiatives * 12)}%` }}
+                            title={`Recognized Initiatives: ${m.recognizedInitiatives}`}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Column 2: Workload Distribution by Unit */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-sm text-slate-900 flex items-center space-x-1.5">
+                  <Building2 className="w-4 h-4 text-blue-600" />
+                  <span>Workload Distribution by Unit</span>
+                </h2>
+              </div>
+
+              <div className="space-y-2.5">
+                {unitSummaries.map((u) => {
+                  const totalLoad = u.activeTasksCount + u.completedTasksCount;
+                  const maxUnitLoad = Math.max(
+                    1,
+                    ...unitSummaries.map((x) => x.activeTasksCount + x.completedTasksCount)
+                  );
+                  return (
+                    <div
+                      key={u.unit.id}
+                      onClick={() => onNavigateToPersonnel?.()}
+                      className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-300 cursor-pointer transition space-y-1"
+                    >
+                      <div className="flex items-center justify-between font-semibold text-slate-900">
+                        <span className="truncate pr-2">{u.unit.name}</span>
+                        <span className="text-[11px] text-slate-600 whitespace-nowrap">
+                          {u.activeUsersCount} Staff • {u.activeTasksCount} Active
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="bg-blue-700 h-full"
+                          style={{ width: `${(totalLoad / maxUnitLoad) * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-500">
+                        <span>Completed: {u.completedTasksCount}</span>
+                        <span className={u.overdueTasksCount > 0 ? 'text-rose-700 font-bold' : ''}>
+                          Overdue: {u.overdueTasksCount}
+                        </span>
+                        <span>On-Time: {u.onTimeRate.display}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Column 3: Workload Distribution by Philippine Region */}
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-sm text-slate-900 flex items-center space-x-1.5">
+                  <MapPin className="w-4 h-4 text-emerald-600" />
+                  <span>Workload by Operating Region</span>
+                </h2>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {regionalSummaries.map((r) => {
+                  const totalRegTasks = r.activeTasksCount + r.completedTasksCount;
+                  const maxReg = Math.max(
+                    1,
+                    ...regionalSummaries.map((x) => x.activeTasksCount + x.completedTasksCount)
+                  );
+                  return (
+                    <div
+                      key={r.region.id}
+                      onClick={() => onNavigateToPersonnel?.()}
+                      className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg hover:border-blue-300 cursor-pointer transition space-y-1"
+                    >
+                      <div className="flex items-center justify-between font-semibold text-slate-900">
+                        <span>{r.region.name}</span>
+                        <span className="text-[11px] text-slate-600">
+                          {r.activeTasksCount} Active • {r.completedTasksCount} Done
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="bg-emerald-600 h-full"
+                          style={{ width: `${(totalRegTasks / maxReg) * 100}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-500">
+                        <span>Staff: {r.assignedPersonnelCount}</span>
+                        <span>Shift Logs: {r.activitiesCount}</span>
+                        <span className={r.overdueTasksCount > 0 ? 'text-rose-700 font-bold' : ''}>
+                          Overdue: {r.overdueTasksCount}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        /* TEAM MEMBER 5 SUMMARY CARDS */
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+          <div
+            onClick={() => setStatusFilter('all')}
+            className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition cursor-pointer"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Active Tasks
+              </span>
+              <CheckSquare className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-slate-900">{summary.activeTasks}</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">Incomplete assignments</div>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('due_today')}
+            className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
+              summary.dueToday > 0 ? 'bg-amber-50/80 border-amber-300' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-amber-800 uppercase tracking-wider">
+                Due Today
+              </span>
+              <Calendar className="w-4 h-4 text-amber-600" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-amber-900">{summary.dueToday}</div>
+            <div className="text-[11px] text-amber-700/80 mt-0.5">Deadline is today</div>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('overdue')}
+            className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
+              summary.overdue > 0 ? 'bg-rose-50/80 border-rose-300' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-rose-800 uppercase tracking-wider">
+                Overdue
+              </span>
+              <AlertTriangle className="w-4 h-4 text-rose-600" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-rose-900">{summary.overdue}</div>
+            <div className="text-[11px] text-rose-700/80 mt-0.5">Past due date</div>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('for_review')}
+            className={`p-4 rounded-xl border shadow-xs transition cursor-pointer ${
+              summary.forReview > 0
+                ? 'bg-indigo-50/80 border-indigo-300'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-indigo-800 uppercase tracking-wider">
+                For Review
+              </span>
+              <RotateCcw className="w-4 h-4 text-indigo-600" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-indigo-900">{summary.forReview}</div>
+            <div className="text-[11px] text-indigo-700/80 mt-0.5">Awaiting Manager sign-off</div>
+          </div>
+
+          <div
+            onClick={() => setStatusFilter('completed')}
+            className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition cursor-pointer col-span-2 sm:col-span-1"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Completed
+              </span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-slate-900">{summary.completed}</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">Officially closed</div>
+          </div>
+        </div>
+      )}
 
       {/* Member Initiative & Recognition Highlight Banner */}
       <div className="p-4 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-xl shadow-xs border border-blue-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -229,9 +928,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <h3 className="font-bold text-sm tracking-tight text-white">
                 Member Initiative & Activity Recognition
               </h3>
-              <span className="text-[10px] bg-amber-400 text-slate-950 font-bold px-2 py-0.2 rounded-full uppercase">
-                New
-              </span>
             </div>
             <p className="text-xs text-slate-300 mt-0.5">
               Proactive inspections & permitted routine checks recognized separately from direct manager assignments
@@ -267,60 +963,68 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Manager Specific: Quick Initiatives for Review Alert */}
-      {isManager && initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted').length > 0 && (
-        <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-xl space-y-3 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Lightbulb className="w-4 h-4 text-amber-700" />
-              <h3 className="font-bold text-xs uppercase tracking-wider text-amber-900">
-                Initiatives Awaiting Manager Review (
-                {initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted').length}
-                )
-              </h3>
-            </div>
-            {onNavigateToInitiatives && (
-              <button
-                type="button"
-                onClick={onNavigateToInitiatives}
-                className="text-xs font-semibold text-blue-800 hover:underline"
-              >
-                View All Reviews →
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {initiatives
-              .filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted')
-              .slice(0, 4)
-              .map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => onSelectInitiative?.(item)}
-                  className="p-3 bg-white border border-amber-200 rounded-lg text-xs hover:border-blue-400 hover:shadow-xs transition cursor-pointer flex items-center justify-between"
+      {isManager &&
+        initiatives.filter(
+          (i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted'
+        ).length > 0 && (
+          <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-xl space-y-3 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Lightbulb className="w-4 h-4 text-amber-700" />
+                <h3 className="font-bold text-xs uppercase tracking-wider text-amber-900">
+                  Initiatives Awaiting Manager Review (
+                  {
+                    initiatives.filter(
+                      (i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted'
+                    ).length
+                  }
+                  )
+                </h3>
+              </div>
+              {onNavigateToInitiatives && (
+                <button
+                  type="button"
+                  onClick={onNavigateToInitiatives}
+                  className="text-xs font-semibold text-blue-800 hover:underline cursor-pointer"
                 >
-                  <div className="space-y-0.5 truncate pr-2">
-                    <div className="font-semibold text-slate-900 truncate">{item.title}</div>
-                    <div className="text-[11px] text-slate-500">
-                      By {item.submitted_by_name} • {item.region} •{' '}
-                      <span className="font-medium text-amber-800 capitalize">
-                        {item.status.replace(/_/g, ' ')}
-                      </span>
+                  View All Reviews →
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {initiatives
+                .filter(
+                  (i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted'
+                )
+                .slice(0, 4)
+                .map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => onSelectInitiative?.(item)}
+                    className="p-3 bg-white border border-amber-200 rounded-lg text-xs hover:border-blue-400 hover:shadow-xs transition cursor-pointer flex items-center justify-between"
+                  >
+                    <div className="space-y-0.5 truncate pr-2">
+                      <div className="font-semibold text-slate-900 truncate">{item.title}</div>
+                      <div className="text-[11px] text-slate-500">
+                        By {item.submitted_by_name} • {item.region} •{' '}
+                        <span className="font-medium text-amber-800 capitalize">
+                          {item.status.replace(/_/g, ' ')}
+                        </span>
+                      </div>
                     </div>
+                    <span className="text-[11px] font-semibold text-blue-700 hover:underline whitespace-nowrap">
+                      Review →
+                    </span>
                   </div>
-                  <span className="text-[11px] font-semibold text-blue-700 hover:underline whitespace-nowrap">
-                    Review →
-                  </span>
-                </div>
-              ))}
+                ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-          {/* Search Input */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -332,7 +1036,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             />
           </div>
 
-          {/* Status Quick Filter */}
           <div>
             <select
               value={statusFilter}
@@ -340,6 +1043,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white"
             >
               <option value="all">All Statuses</option>
+              <option value="active">Active (Open Only)</option>
               <option value="due_today">Due Today</option>
               <option value="overdue">Overdue Only</option>
               <option value="for_review">For Review</option>
@@ -350,7 +1054,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </select>
           </div>
 
-          {/* Region Quick Filter */}
           <div>
             <select
               value={regionFilter}
@@ -366,7 +1069,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </select>
           </div>
 
-          {/* Priority Quick Filter */}
           <div>
             <select
               value={priorityFilter}
@@ -381,7 +1083,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Active Filter Tags */}
         {(statusFilter !== 'all' || regionFilter !== 'all' || priorityFilter !== 'all' || searchTerm) && (
           <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
             <span className="text-slate-500">
@@ -395,7 +1096,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 setRegionFilter('all');
                 setPriorityFilter('all');
               }}
-              className="text-blue-700 hover:underline font-medium"
+              className="text-blue-700 hover:underline font-medium cursor-pointer"
             >
               Reset Filters
             </button>
@@ -403,15 +1104,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
-      {/* Compact Table View: Task, Assigned To, Region, Due Date, Priority, Status, View */}
+      {/* Compact Tasks Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <h2 className="font-semibold text-sm text-slate-900">
             {isManager ? 'Department Security Tasks' : 'My Assigned Work'}
           </h2>
-          <span className="text-xs text-slate-500 font-medium">
-            {filteredTasks.length} total
-          </span>
+          <div className="flex items-center space-x-3 text-xs">
+            <span className="text-slate-500 font-medium">{filteredTasks.length} total</span>
+            <button
+              type="button"
+              onClick={onNavigateToTasks}
+              className="text-blue-700 hover:underline font-semibold cursor-pointer"
+            >
+              Full Tasks Board →
+            </button>
+          </div>
         </div>
 
         {filteredTasks.length === 0 ? (
@@ -444,7 +1152,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       className="hover:bg-slate-50/80 transition cursor-pointer"
                       onClick={() => onSelectTask(task)}
                     >
-                      {/* Task Title & Category */}
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-900 max-w-xs truncate">
                           {task.title}
@@ -457,7 +1164,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Assigned To */}
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-800">
                           {task.assigned_user_name || 'Assigned Officer'}
@@ -467,14 +1173,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Region */}
                       <td className="px-4 py-3">
                         <div className="text-slate-700 max-w-[180px] truncate" title={task.region}>
                           {task.region}
                         </div>
                       </td>
 
-                      {/* Due Date & Overdue Indicator */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-medium text-slate-900">
                           {formatPhilippineDate(task.due_date)}
@@ -491,7 +1195,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         )}
                       </td>
 
-                      {/* Priority */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span
                           className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded border capitalize ${
@@ -506,7 +1209,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                       </td>
 
-                      {/* Status */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span
                           className={`inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${statusCfg.badgeClass}`}
@@ -515,7 +1217,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </span>
                       </td>
 
-                      {/* View Action */}
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <button
                           type="button"

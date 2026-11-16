@@ -101,7 +101,17 @@ export interface AuditLog {
   actor_id: string;
   actor_name?: string;
   action: string;
-  record_type: 'task' | 'task_update' | 'activity' | 'profile' | 'auth' | 'initiative';
+  record_type:
+    | 'task'
+    | 'task_update'
+    | 'activity'
+    | 'profile'
+    | 'auth'
+    | 'initiative'
+    | 'personnel'
+    | 'organization'
+    | 'hierarchy'
+    | 'performance';
   record_id?: string;
   details?: string;
   created_at: string;
@@ -219,3 +229,200 @@ export interface InitiativeSummary {
   returned: number;
   rejected: number;
 }
+
+// -------------------------------------------------------------
+// PERSONNEL DIRECTORY, ORG HIERARCHY & PERFORMANCE TYPES
+// -------------------------------------------------------------
+
+export type EmploymentCategory =
+  | 'organic_personnel'
+  | 'supervisor'
+  | 'management'
+  | 'support_staff';
+
+export type OperationalStatus =
+  | 'active'
+  | 'on_leave'
+  | 'reassigned'
+  | 'inactive';
+
+export interface OrganizationalUnit {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  parent_unit_id?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OrganizationalPosition {
+  id: string;
+  title: string;
+  unit_id?: string | null;
+  hierarchy_level: number;
+  is_supervisory: boolean;
+  description?: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OperatingRegion {
+  id: string;
+  code: string;
+  name: string;
+  island_group: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface PersonnelAssignment {
+  profile_user_id: string;
+  organizational_unit_id?: string | null;
+  position_id?: string | null;
+  reports_to_user_id?: string | null;
+  region_id?: string | null;
+  assigned_site?: string | null;
+  employment_category: EmploymentCategory;
+  operational_status: OperationalStatus;
+  effective_from: string;
+  notes?: string;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PersonnelReportingHistory {
+  id: string;
+  profile_user_id: string;
+  previous_unit_id?: string | null;
+  new_unit_id?: string | null;
+  previous_position_id?: string | null;
+  new_position_id?: string | null;
+  previous_region_id?: string | null;
+  new_region_id?: string | null;
+  previous_assigned_site?: string | null;
+  new_assigned_site?: string | null;
+  previous_reports_to_user_id?: string | null;
+  new_reports_to_user_id?: string | null;
+  previous_operational_status?: string | null;
+  new_operational_status?: string | null;
+  change_reason: string;
+  changed_by: string;
+  changed_by_name?: string;
+  effective_date: string;
+  created_at: string;
+}
+
+export interface PerformanceTarget {
+  id: string;
+  unit_id?: string | null;
+  position_id?: string | null;
+  target_completion_rate: number;
+  target_on_time_rate: number;
+  monthly_initiative_goal: number;
+  notes?: string;
+  updated_at?: string;
+}
+
+export interface SupervisorSummary {
+  supervisor_id: string;
+  supervisor_name: string;
+  position_title: string;
+  unit_name: string;
+  region_name?: string;
+}
+
+export interface UpdatePersonnelAssignmentPayload {
+  profile_user_id: string;
+  organizational_unit_id: string | null;
+  position_id: string | null;
+  reports_to_user_id: string | null;
+  region_id: string | null;
+  assigned_site: string;
+  employment_category: EmploymentCategory;
+  operational_status: OperationalStatus;
+  effective_from: string;
+  notes?: string;
+  change_reason: string;
+  app_role?: UserRole; // Explicit manager-only authorization update
+  regional_assignment_label?: string;
+}
+
+export type DateRangePreset = 'today' | 'week' | 'month' | 'quarter' | 'custom';
+
+export interface KpiFraction {
+  numerator: number;
+  denominator: number;
+  percentage: number | null;
+  display: string; // e.g., "85% (17/20)" or "No Data"
+}
+
+export interface FunctionIndicator {
+  label: string;
+  value: string;
+  detail: string;
+}
+
+export interface PersonnelPerformanceRecord {
+  user: UserProfile;
+  assignment: PersonnelAssignment | null;
+  unit: OrganizationalUnit | null;
+  position: OrganizationalPosition | null;
+  region: OperatingRegion | null;
+  supervisor: { id: string; name: string; positionTitle: string; email?: string } | null;
+  totalAssignedTasks: number;
+  activeTasksCount: number;
+  dueTodayCount: number;
+  overdueTasksCount: number;
+  forReviewCount: number;
+  returnedTasksCount: number;
+  completedTasksCount: number;
+  onTimeCompletedCount: number;
+  completionRate: KpiFraction;
+  onTimeRate: KpiFraction;
+  activitiesCount: number;
+  totalInitiativesCount: number;
+  pendingInitiativesCount: number;
+  returnedInitiativesCount: number;
+  recognizedInitiativesCount: number;
+  returnedSubmissionsEvents: number;
+  lastRecordedActivityDate: string | null;
+  lastRecordedActivityTitle: string | null;
+  hasAnyHistory: boolean;
+  functionIndicators: FunctionIndicator[];
+}
+
+export interface UnitPerformanceSummary {
+  unit: OrganizationalUnit;
+  activeUsersCount: number;
+  activeTasksCount: number;
+  completedTasksCount: number;
+  overdueTasksCount: number;
+  pendingReviewsCount: number;
+  returnedSubmissionsCount: number;
+  recognizedInitiativesCount: number;
+  completionRate: KpiFraction;
+  onTimeRate: KpiFraction;
+  activitiesCount: number;
+  memberIds: string[];
+}
+
+export interface RegionalPerformanceSummary {
+  region: OperatingRegion;
+  assignedPersonnelCount: number;
+  activeTasksCount: number;
+  completedTasksCount: number;
+  overdueTasksCount: number;
+  pendingReviewsCount: number;
+  returnedSubmissionsCount: number;
+  recognizedInitiativesCount: number;
+  completionRate: KpiFraction;
+  onTimeRate: KpiFraction;
+  activitiesCount: number;
+}
+

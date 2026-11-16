@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
 import { PHILIPPINE_REGIONS, TASK_CATEGORIES, TASK_PRIORITIES } from '../lib/philippinesRegions.ts';
@@ -10,12 +10,14 @@ interface CreateTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  defaultAssignedTo?: string;
 }
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  defaultAssignedTo,
 }) => {
   const { allProfiles } = useAuth();
   const { createTask } = useData();
@@ -23,7 +25,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
   const [category, setCategory] = useState<TaskCategory>('Inspection');
-  const [assignedTo, setAssignedTo] = useState('');
+  const [assignedTo, setAssignedTo] = useState(defaultAssignedTo || '');
   const [region, setRegion] = useState<string>(PHILIPPINE_REGIONS[0]);
   const [dueDate, setDueDate] = useState<string>(getPhilippineToday());
   const [priority, setPriority] = useState<TaskPriority>('normal');
@@ -31,6 +33,12 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && defaultAssignedTo) {
+      setAssignedTo(defaultAssignedTo);
+    }
+  }, [isOpen, defaultAssignedTo]);
 
   if (!isOpen) return null;
 

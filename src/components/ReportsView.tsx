@@ -1,45 +1,71 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
-import { Task, SecurityActivity, MemberInitiative } from '../types/index.ts';
-import { formatPhilippineDate, getDueStatusLabel, getPhilippineToday } from '../lib/dateUtils.ts';
-import { TASK_STATUS_CONFIG } from '../lib/philippinesRegions.ts';
+import {
+  formatPhilippineDate,
+  getDueStatusLabel,
+  getPhilippineToday,
+} from '../lib/dateUtils.ts';
 import { INITIATIVE_CATEGORIES } from '../lib/initiativeConstants.ts';
 import {
-  BarChart3,
+  computePersonnelPerformance,
+  computeUnitPerformanceSummaries,
+  computeRegionalPerformanceSummaries,
+  computeMonthlyTrendBuckets,
+  getDateRangeForPreset,
+  isTaskInReportingCohort,
+  isWithinDateWindow,
+} from '../lib/performanceUtils.ts';
+import {
   Download,
   Printer,
   Sparkles,
-  Calendar,
-  CheckCircle2,
   AlertTriangle,
-  Clock,
-  FileText,
   AlertCircle,
   Copy,
   Check,
   Award,
-  Lightbulb,
-  ShieldCheck,
-  RotateCcw,
+  Building2,
+  MapPin,
+  Users,
+  TrendingUp,
+  UserCheck,
+  Info,
 } from 'lucide-react';
 
 interface ReportsViewProps {
   onOpenPrintView: () => void;
+  onOpenPrintIndividualReport?: (userId: string, fromDate: string, toDate: string) => void;
+  onViewPersonnelPerformance?: (userId: string) => void;
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => {
-  const { isManager, currentUser } = useAuth();
-  const { tasks, activities, initiatives } = useData();
+export const ReportsView: React.FC<ReportsViewProps> = ({
+  onOpenPrintView,
+  onOpenPrintIndividualReport,
+  onViewPersonnelPerformance,
+}) => {
+  const { isManager, currentUser, allProfiles } = useAuth();
+  const {
+    tasks,
+    allDepartmentTasks,
+    taskUpdates,
+    activities,
+    initiatives,
+    allDepartmentInitiatives,
+    initiativeHistory,
+    organizationalUnits,
+    positions,
+    operatingRegions,
+    assignmentsByUserId,
+  } = useData();
 
-  // Date range presets
+  // Date range presets (default: This Month in Asia/Manila)
   const today = getPhilippineToday();
-  const [fromDate, setFromDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 14);
-    return d.toISOString().split('T')[0];
-  });
-  const [toDate, setToDate] = useState<string>(today);
+  const [fromDate, setFromDate] = useState<string>(() => getDateRangeForPreset('month').fromDate);
+  const [toDate, setToDate] = useState<string>(() => getDateRangeForPreset('month').toDate);
+
+  // Individual Personnel Selector (for Managers)
+  const [selectedPersonId, setSelectedPersonId] = useState<string>('');
 
   // AI Narrative state
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -47,70 +73,55 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
   const [copiedAi, setCopiedAi] = useState(false);
 
   // Set preset ranges
-  const handlePreset = (type: 'today' | 'week' | 'month' | 'all') => {
-    const now = new Date();
-    if (type === 'today') {
-      setFromDate(today);
-      setToDate(today);
-    } else if (type === 'week') {
-      const pastWeek = new Date();
-      pastWeek.setDate(now.getDate() - 7);
-      setFromDate(pastWeek.toISOString().split('T')[0]);
-      setToDate(today);
-    } else if (type === 'month') {
-      const pastMonth = new Date();
-      pastMonth.setDate(now.getDate() - 30);
-      setFromDate(pastMonth.toISOString().split('T')[0]);
-      setToDate(today);
-    } else if (type === 'all') {
-      setFromDate('2026-01-01');
-      setToDate('2026-12-31');
+  const handlePreset = (type: 'today' | 'week' | 'month' | 'quarter' | 'all') => {
+    if (type === 'all') {
+      setFromDate('2025-01-01');
+      setToDate('2027-12-31');
+      return;
     }
+    const range = getDateRangeForPreset(type);
+    setFromDate(range.fromDate);
+    setToDate(range.toDate);
   };
+
+  const sourceTasks = isManager ? allDepartmentTasks : tasks;
+  const sourceInitiatives = isManager ? allDepartmentInitiatives : initiatives;
 
   // Filtered records in range
   const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      const taskDate = t.due_date || t.created_at.split('T')[0];
-      return taskDate >= fromDate && taskDate <= toDate;
-    });
-  }, [tasks, fromDate, toDate]);
+    return sourceTasks.filter((t) => isTaskInReportingCohort(t, fromDate, toDate));
+  }, [sourceTasks, fromDate, toDate]);
 
   const filteredActivities = useMemo(() => {
-    return activities.filter((a) => {
-      return a.activity_date >= fromDate && a.activity_date <= toDate;
-    });
+    return activities.filter((a) => isWithinDateWindow(a.activity_date, fromDate, toDate));
   }, [activities, fromDate, toDate]);
 
-  // Initiative Recognition Metrics in reporting timeframe
-  // Note: An initiative is officially counted as recognized when status is 'recognized'
-  // and its final manager recognition date falls within the selected period.
   const recognizedInitiatives = useMemo(() => {
-    return initiatives.filter((i) => {
-      if (i.status !== 'recognized' || !i.recognized_at) return false;
-      const recDate = i.recognized_at.split('T')[0];
-      return recDate >= fromDate && recDate <= toDate;
-    });
-  }, [initiatives, fromDate, toDate]);
+    return sourceInitiatives.filter(
+      (i) =>
+        i.status === 'recognized' &&
+        Boolean(i.recognized_at) &&
+        isWithinDateWindow(i.recognized_at, fromDate, toDate)
+    );
+  }, [sourceInitiatives, fromDate, toDate]);
 
   const filteredInitiatives = useMemo(() => {
-    return initiatives.filter((i) => {
-      const initDate = i.activity_date || i.created_at.split('T')[0];
-      return initDate >= fromDate && initDate <= toDate;
-    });
-  }, [initiatives, fromDate, toDate]);
+    return sourceInitiatives.filter(
+      (i) =>
+        i.status !== 'draft' &&
+        isWithinDateWindow(i.activity_date || i.created_at, fromDate, toDate)
+    );
+  }, [sourceInitiatives, fromDate, toDate]);
 
   const pendingInitiatives = useMemo(() => {
-    return initiatives.filter((i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted');
-  }, [initiatives]);
+    return sourceInitiatives.filter(
+      (i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted'
+    );
+  }, [sourceInitiatives]);
 
   const returnedInitiatives = useMemo(() => {
-    return initiatives.filter((i) => i.status === 'returned');
-  }, [initiatives]);
-
-  const rejectedInitiatives = useMemo(() => {
-    return initiatives.filter((i) => i.status === 'rejected');
-  }, [initiatives]);
+    return sourceInitiatives.filter((i) => i.status === 'returned');
+  }, [sourceInitiatives]);
 
   // Recognized Initiatives by Member Leaderboard
   const recognizedByMember = useMemo(() => {
@@ -161,7 +172,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
 
   // Task groupings
   const pendingTasks = useMemo(() => {
-    return filteredTasks.filter((t) => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'returned');
+    return filteredTasks.filter(
+      (t) => t.status === 'assigned' || t.status === 'in_progress' || t.status === 'returned'
+    );
   }, [filteredTasks]);
 
   const overdueTasks = useMemo(() => {
@@ -176,7 +189,124 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
     return filteredTasks.filter((t) => t.status === 'for_review');
   }, [filteredTasks]);
 
+  // Profiles lookup
+  const profilesById = useMemo(() => {
+    const map: Record<string, (typeof allProfiles)[number]> = {};
+    for (const p of allProfiles) map[p.id] = p;
+    if (currentUser && !map[currentUser.id]) map[currentUser.id] = currentUser;
+    return map;
+  }, [allProfiles, currentUser]);
+
+  // Personnel Performance Records
+  const personnelRecords = useMemo(() => {
+    const targetProfiles = isManager
+      ? allProfiles.filter((p) => p.approved)
+      : currentUser
+      ? [currentUser]
+      : [];
+
+    return targetProfiles
+      .map((user) =>
+        computePersonnelPerformance({
+          user,
+          assignment: assignmentsByUserId[user.id] || null,
+          units: organizationalUnits,
+          positions,
+          regions: operatingRegions,
+          profilesById,
+          assignmentsById: assignmentsByUserId,
+          tasks: sourceTasks,
+          taskUpdates,
+          activities,
+          initiatives: sourceInitiatives,
+          initiativeHistory,
+          fromDate,
+          toDate,
+        })
+      )
+      .sort((a, b) => a.user.display_name.localeCompare(b.user.display_name));
+  }, [
+    isManager,
+    allProfiles,
+    currentUser,
+    assignmentsByUserId,
+    organizationalUnits,
+    positions,
+    operatingRegions,
+    profilesById,
+    sourceTasks,
+    taskUpdates,
+    activities,
+    sourceInitiatives,
+    initiativeHistory,
+    fromDate,
+    toDate,
+  ]);
+
+  // Team / Unit Performance Summaries (Managers only)
+  const unitSummaries = useMemo(() => {
+    if (!isManager) return [];
+    return computeUnitPerformanceSummaries({
+      units: organizationalUnits,
+      personnelRecords,
+    });
+  }, [isManager, organizationalUnits, personnelRecords]);
+
+  // Regional Performance Summaries (Managers only — preserves historical task/activity/initiative regions)
+  const regionalSummaries = useMemo(() => {
+    if (!isManager) return [];
+    return computeRegionalPerformanceSummaries({
+      regions: operatingRegions,
+      personnelRecords,
+      tasks: sourceTasks,
+      taskUpdates,
+      activities,
+      initiatives: sourceInitiatives,
+      fromDate,
+      toDate,
+    });
+  }, [
+    isManager,
+    operatingRegions,
+    personnelRecords,
+    sourceTasks,
+    taskUpdates,
+    activities,
+    sourceInitiatives,
+    fromDate,
+    toDate,
+  ]);
+
+  // 4-Month Trend Buckets
+  const monthlyTrends = useMemo(() => {
+    return computeMonthlyTrendBuckets({
+      tasks: sourceTasks,
+      initiatives: sourceInitiatives,
+      monthsCount: 4,
+    });
+  }, [sourceTasks, sourceInitiatives]);
+
+  // Selected individual for preview card
+  const selectedIndividualRecord = useMemo(() => {
+    if (!isManager) return personnelRecords[0] || null;
+    if (!selectedPersonId) return personnelRecords[0] || null;
+    return personnelRecords.find((r) => r.user.id === selectedPersonId) || personnelRecords[0] || null;
+  }, [isManager, selectedPersonId, personnelRecords]);
+
   // CSV Export Handlers
+  const downloadCSV = (filename: string, headers: string[], rows: string[][]) => {
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleExportTasksCSV = () => {
     const headers = [
       'Task ID',
@@ -192,7 +322,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       'Completed At',
       'Remarks',
     ];
-
     const rows = filteredTasks.map((t) => [
       `"${t.id}"`,
       `"${t.title.replace(/"/g, '""')}"`,
@@ -207,15 +336,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       `"${t.completed_at || ''}"`,
       `"${(t.remarks || '').replace(/"/g, '""')}"`,
     ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `SOH_Tasks_Report_${fromDate}_to_${toDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCSV(`SOH_Tasks_Report_${fromDate}_to_${toDate}.csv`, headers, rows);
   };
 
   const handleExportActivitiesCSV = () => {
@@ -230,7 +351,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       'Remarks',
       'Created At',
     ];
-
     const rows = filteredActivities.map((a) => [
       `"${a.id}"`,
       `"${a.activity_date}"`,
@@ -242,15 +362,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       `"${(a.remarks || '').replace(/"/g, '""')}"`,
       `"${a.created_at}"`,
     ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `SOH_Activities_Report_${fromDate}_to_${toDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCSV(`SOH_Activities_Report_${fromDate}_to_${toDate}.csv`, headers, rows);
   };
 
   const handleExportInitiativesCSV = () => {
@@ -272,7 +384,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       'Expected Outcome / Accomplishment',
       'Manager Remarks',
     ];
-
     const rows = filteredInitiatives.map((i) => [
       `"${i.id}"`,
       `"${i.title.replace(/"/g, '""')}"`,
@@ -291,65 +402,108 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenPrintView }) => 
       `"${i.expected_outcome.replace(/"/g, '""')}"`,
       `"${(i.manager_remarks || '').replace(/"/g, '""')}"`,
     ]);
+    downloadCSV(`SOH_Initiatives_Recognition_Report_${fromDate}_to_${toDate}.csv`, headers, rows);
+  };
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `SOH_Initiatives_Recognition_Report_${fromDate}_to_${toDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportPerformanceCSV = () => {
+    const headers = [
+      'User UUID',
+      'Display Name',
+      'Email',
+      'Unit',
+      'Position',
+      'Region',
+      'Assigned Site',
+      'Reports To',
+      'Operational Status',
+      'Tasks Assigned',
+      'Active Tasks',
+      'Overdue Tasks',
+      'Completed Tasks',
+      'Completion Rate',
+      'On-Time Rate',
+      'Daily Activities',
+      'Recognized Initiatives',
+      'Returned Events',
+    ];
+    const rows = personnelRecords.map((r) => [
+      `"${r.user.id}"`,
+      `"${r.user.display_name.replace(/"/g, '""')}"`,
+      `"${r.user.email}"`,
+      `"${(r.unit?.name || 'Unassigned').replace(/"/g, '""')}"`,
+      `"${(r.position?.title || (r.user.role === 'manager' ? 'Security Manager' : 'Unassigned')).replace(/"/g, '""')}"`,
+      `"${(r.region?.name || r.user.regional_assignment || 'Unassigned').replace(/"/g, '""')}"`,
+      `"${(r.assignment?.assigned_site || '').replace(/"/g, '""')}"`,
+      `"${(r.supervisor?.name || 'None').replace(/"/g, '""')}"`,
+      `"${r.assignment?.operational_status || (r.user.active ? 'active' : 'inactive')}"`,
+      `"${r.totalAssignedTasks}"`,
+      `"${r.activeTasksCount}"`,
+      `"${r.overdueTasksCount}"`,
+      `"${r.completedTasksCount}"`,
+      `"${r.completionRate.display}"`,
+      `"${r.onTimeRate.display}"`,
+      `"${r.activitiesCount}"`,
+      `"${r.recognizedInitiativesCount}"`,
+      `"${r.returnedSubmissionsEvents}"`,
+    ]);
+    downloadCSV(`SOH_Personnel_Performance_${fromDate}_to_${toDate}.csv`, headers, rows);
   };
 
   // Generate AI Executive Narrative based ONLY on actual saved records
   const handleGenerateAiSummary = () => {
     setIsGeneratingAi(true);
 
-    // Formulate structured summary from actual records
     setTimeout(() => {
-      const generated = `[AI-DRAFTED EXECUTIVE BRIEFING — Requires Security Manager Verification & Formal Review Before Official Distribution]
+      const generated = `[OPERATIONAL SUMMARY BRIEF — Requires Security Manager Verification Before Official Distribution]
 
 REPORTING TIMEFRAME: ${formatPhilippineDate(fromDate)} to ${formatPhilippineDate(toDate)}
-AUTHORIZED SECURITY MANAGER: ${currentUser?.display_name || 'Department Manager'}
+AUTHORIZED USER: ${currentUser?.display_name || 'Department Manager'}
 GENERATED ON: ${formatPhilippineDate(today)} (Philippine Standard Time)
 
 1. EXECUTIVE OVERVIEW:
-During this reporting cycle, the Security Operations department tracked ${filteredTasks.length} regional task assignments, recorded ${filteredActivities.length} daily security shift activities, and recognized ${recognizedInitiatives.length} proactive member security initiatives across Philippine corporate facilities.
+During this reporting cycle, Security Operations Hub tracked ${filteredTasks.length} task assignment(s), recorded ${filteredActivities.length} daily security shift log(s), and validated ${recognizedInitiatives.length} recognized proactive security initiative(s).
 
 2. TASK DISPOSITION:
-• Completed & Verified Tasks: ${completedTasks.length} task(s) signed off by Security Management.
-• Pending Manager Review: ${forReviewTasks.length} task(s) awaiting managerial review.
-• In-Progress / Active: ${pendingTasks.length} task(s) undergoing physical inspection or audit.
-• Overdue Action Items: ${overdueTasks.length} task(s) requiring immediate supervisor follow-up.
+• Completed & Verified Tasks: ${completedTasks.length} task(s) signed off.
+• Pending Manager Review: ${forReviewTasks.length} task(s) awaiting review.
+• In-Progress / Active: ${pendingTasks.length} task(s) undergoing execution.
+• Overdue Action Items: ${overdueTasks.length} task(s) requiring immediate follow-up.
 
 3. MEMBER INITIATIVE & RECOGNITION:
 • Officially Recognized Initiatives: ${recognizedInitiatives.length} validated proactive accomplishment(s).
-• Pending Manager Evaluation: ${pendingInitiatives.length} proposal(s) or accomplishments awaiting review.
-• Returned for Revision: ${returnedInitiatives.length} initiative(s) undergoing member clarification.
+• Pending Manager Evaluation: ${pendingInitiatives.length} submission(s) awaiting review.
+• Returned for Revision: ${returnedInitiatives.length} initiative(s) undergoing clarification.
 
 4. CRITICAL ATTENTION POINTS:
 ${
   overdueTasks.length > 0
-    ? overdueTasks.map((t) => `• [OVERDUE] "${t.title}" at ${t.region} assigned to ${t.assigned_user_name || 'Officer'} (Due: ${t.due_date})`).join('\n')
-    : '• No overdue tasks identified within the selected timeframe. Department SLA standards maintained.'
+    ? overdueTasks
+        .map(
+          (t) =>
+            `• [OVERDUE] "${t.title}" at ${t.region} assigned to ${t.assigned_user_name || 'Officer'} (Due: ${t.due_date})`
+        )
+        .join('\n')
+    : '• No overdue tasks identified within the selected timeframe.'
 }
 
 5. DAILY ACCOMPLISHMENTS HIGHLIGHT:
 ${
   filteredActivities.length > 0
-    ? filteredActivities.slice(0, 4).map((a) => `• [${a.activity_date} - ${a.region || 'Facility'}]: ${a.title} — Conducted by ${a.author_name}`).join('\n')
+    ? filteredActivities
+        .slice(0, 4)
+        .map(
+          (a) =>
+            `• [${a.activity_date} - ${a.region || 'Facility'}]: ${a.title} — Logged by ${a.author_name}`
+        )
+        .join('\n')
     : '• No daily shift logs recorded during this period.'
 }
 
-6. COMPLIANCE & NEXT STEPS:
-Field personnel contributions must continue to adhere to corporate physical security safeguards. Manager recognition certifies operational verification.
-
-*** NOTE: This narrative was synthesized from recorded database entries. Security Manager review is required prior to external executive dissemination. ***`;
+*** NOTE: Synthesized strictly from saved database entries. Operational metrics assist supervisory tracking and do not substitute formal HR performance reviews. ***`;
 
       setAiSummary(generated);
       setIsGeneratingAi(false);
-    }, 800);
+    }, 450);
   };
 
   const handleCopyAiSummary = () => {
@@ -363,23 +517,22 @@ Field personnel contributions must continue to adhere to corporate physical secu
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Security Compliance & Operations Reports
+            Security Compliance & Performance Reports
           </h1>
           <p className="text-xs sm:text-sm text-slate-500">
-            Audit-ready activity summaries, task tracking metrics, CSV exports, and printable briefs
+            Department, regional, unit, and individual accomplishment reports with CSV & printable PDF briefs
           </p>
         </div>
 
-        {/* Action Buttons: CSV, Print, AI */}
+        {/* Action Buttons: CSV, Print */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleExportTasksCSV}
             className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
-            title="Download CSV spreadsheet of filtered security tasks"
           >
             <Download className="w-3.5 h-3.5 text-blue-600" />
             <span>Export Tasks (CSV)</span>
@@ -389,7 +542,6 @@ Field personnel contributions must continue to adhere to corporate physical secu
             type="button"
             onClick={handleExportActivitiesCSV}
             className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
-            title="Download CSV spreadsheet of daily shift activities"
           >
             <Download className="w-3.5 h-3.5 text-emerald-600" />
             <span>Export Activities (CSV)</span>
@@ -399,7 +551,6 @@ Field personnel contributions must continue to adhere to corporate physical secu
             type="button"
             onClick={handleExportInitiativesCSV}
             className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
-            title="Download CSV spreadsheet of member initiatives and recognition"
           >
             <Download className="w-3.5 h-3.5 text-indigo-600" />
             <span>Export Initiatives (CSV)</span>
@@ -407,21 +558,29 @@ Field personnel contributions must continue to adhere to corporate physical secu
 
           <button
             type="button"
+            onClick={handleExportPerformanceCSV}
+            className="inline-flex items-center px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
+          >
+            <Download className="w-3.5 h-3.5 text-amber-600" />
+            <span>Export Performance (CSV)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onOpenPrintView}
             className="inline-flex items-center px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-xs transition space-x-1.5"
-            title="Open official print-friendly report for printing or PDF save"
           >
             <Printer className="w-3.5 h-3.5 text-blue-400" />
-            <span>Print Report</span>
+            <span>Print Department Report</span>
           </button>
         </div>
       </div>
 
       {/* Date Range Controls */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-700">Reporting Range:</span>
+            <span className="font-semibold text-slate-700">Reporting Range (PHT):</span>
             <div className="flex items-center space-x-2">
               <input
                 type="date"
@@ -439,37 +598,26 @@ Field personnel contributions must continue to adhere to corporate physical secu
             </div>
           </div>
 
-          {/* Presets */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-slate-400">Presets:</span>
-            <button
-              type="button"
-              onClick={() => handlePreset('today')}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium"
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePreset('week')}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium"
-            >
-              This Week
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePreset('month')}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium"
-            >
-              This Month
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePreset('all')}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium"
-            >
-              All Records
-            </button>
+            {(
+              [
+                { id: 'today', label: 'Today' },
+                { id: 'week', label: 'This Week' },
+                { id: 'month', label: 'This Month' },
+                { id: 'quarter', label: 'This Quarter' },
+                { id: 'all', label: 'All Records' },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => handlePreset(p.id)}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium cursor-pointer"
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -510,6 +658,332 @@ Field personnel contributions must continue to adhere to corporate physical secu
         </div>
       </div>
 
+      {/* MANAGER-ONLY: DEPARTMENT, UNIT, REGIONAL & MONTHLY TREND REPORTS */}
+      {isManager && (
+        <div className="space-y-6">
+          {/* Team / Unit Performance + Regional Performance */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Team / Unit Performance Report */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Building2 className="w-4 h-4 text-blue-700" />
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900">
+                      Team / Organizational Unit Performance
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Operational completion & on-time SLA across Security Department units
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2">Unit</th>
+                      <th className="p-2 text-center">Staff</th>
+                      <th className="p-2 text-center">Active</th>
+                      <th className="p-2 text-center">Done</th>
+                      <th className="p-2 text-center">Overdue</th>
+                      <th className="p-2">Completion</th>
+                      <th className="p-2">On-Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {unitSummaries.map((u) => (
+                      <tr key={u.unit.id} className="hover:bg-slate-50">
+                        <td className="p-2 font-semibold text-slate-900">
+                          {u.unit.name}
+                          <span className="ml-1 text-[10px] font-mono text-slate-400">({u.unit.code})</span>
+                        </td>
+                        <td className="p-2 text-center text-slate-700">{u.activeUsersCount}</td>
+                        <td className="p-2 text-center text-slate-700">{u.activeTasksCount}</td>
+                        <td className="p-2 text-center font-semibold text-emerald-700">{u.completedTasksCount}</td>
+                        <td className="p-2 text-center font-semibold text-rose-700">{u.overdueTasksCount}</td>
+                        <td className="p-2 font-mono text-slate-800">{u.completionRate.display}</td>
+                        <td className="p-2 font-mono text-slate-800">{u.onTimeRate.display}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Philippine Regional Performance Report (Historical Attribution Preserved) */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center space-x-2">
+                  <MapPin className="w-4 h-4 text-emerald-700" />
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900">
+                      Philippine Regional Performance Summary
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Grouped by each task, activity, & initiative&apos;s recorded operating region (historical integrity preserved)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="p-2">Region</th>
+                      <th className="p-2 text-center">Assigned</th>
+                      <th className="p-2 text-center">Done</th>
+                      <th className="p-2 text-center">Overdue</th>
+                      <th className="p-2 text-center">Logs</th>
+                      <th className="p-2">Completion</th>
+                      <th className="p-2">On-Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {regionalSummaries.map((r) => (
+                      <tr key={r.region.id} className="hover:bg-slate-50">
+                        <td className="p-2 font-semibold text-slate-900">{r.region.name}</td>
+                        <td className="p-2 text-center text-slate-700">{r.assignedPersonnelCount}</td>
+                        <td className="p-2 text-center font-semibold text-emerald-700">{r.completedTasksCount}</td>
+                        <td className="p-2 text-center font-semibold text-rose-700">{r.overdueTasksCount}</td>
+                        <td className="p-2 text-center text-blue-700 font-medium">{r.activitiesCount}</td>
+                        <td className="p-2 font-mono text-slate-800">{r.completionRate.display}</td>
+                        <td className="p-2 font-mono text-slate-800">{r.onTimeRate.display}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Monthly Performance Trend Report */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-3">
+            <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
+              <TrendingUp className="w-4 h-4 text-indigo-700" />
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">
+                  Monthly Performance Trend (Last 4 Months, PHT)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Month-over-month verified task closures, overdue backlog, pending reviews, and recognized initiatives
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Month</th>
+                    <th className="p-2.5 text-center">Completed Tasks</th>
+                    <th className="p-2.5 text-center">Overdue Tasks</th>
+                    <th className="p-2.5 text-center">Pending Manager Review</th>
+                    <th className="p-2.5 text-center">Recognized Initiatives</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {monthlyTrends.map((m) => (
+                    <tr key={m.monthKey} className="hover:bg-slate-50">
+                      <td className="p-2.5 font-semibold text-slate-900">{m.label}</td>
+                      <td className="p-2.5 text-center font-bold text-emerald-700">{m.completedTasks}</td>
+                      <td className="p-2.5 text-center font-bold text-rose-700">{m.overdueTasks}</td>
+                      <td className="p-2.5 text-center font-semibold text-amber-700">{m.pendingReviews}</td>
+                      <td className="p-2.5 text-center font-bold text-indigo-700">{m.recognizedInitiatives}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INDIVIDUAL PERSONNEL ACCOMPLISHMENT REPORT */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-2">
+            {isManager ? (
+              <Users className="w-5 h-5 text-blue-700" />
+            ) : (
+              <UserCheck className="w-5 h-5 text-blue-700" />
+            )}
+            <div>
+              <h3 className="font-bold text-sm text-slate-900">
+                {isManager
+                  ? 'Individual Personnel Accomplishment & Performance Report'
+                  : 'My Personal Accomplishment Report'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isManager
+                  ? 'Inspect real task delivery, daily logs, and recognized initiatives per authorized officer'
+                  : 'Your verified operational accomplishments within the selected reporting window'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {isManager && personnelRecords.length > 0 && (
+              <select
+                value={selectedIndividualRecord?.user.id || ''}
+                onChange={(e) => setSelectedPersonId(e.target.value)}
+                className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-800 bg-white"
+              >
+                {personnelRecords.map((rec) => (
+                  <option key={rec.user.id} value={rec.user.id}>
+                    {rec.user.display_name} ({rec.position?.title || rec.user.role})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {selectedIndividualRecord && onOpenPrintIndividualReport && (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenPrintIndividualReport(selectedIndividualRecord.user.id, fromDate, toDate)
+                }
+                className="inline-flex items-center px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg transition space-x-1.5 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>
+                  {isManager ? 'Print Individual Report' : 'Print My Performance Report'}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Selected Personnel Highlight Card */}
+        {selectedIndividualRecord && (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+            <div className="col-span-2 sm:col-span-3 lg:col-span-2">
+              <div className="font-bold text-slate-900 text-sm">
+                {selectedIndividualRecord.user.display_name}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {selectedIndividualRecord.position?.title ||
+                  (selectedIndividualRecord.user.role === 'manager'
+                    ? 'Security Manager'
+                    : 'Security Team Member')}{' '}
+                • {selectedIndividualRecord.unit?.name || 'Unassigned Unit'}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Region:{' '}
+                {selectedIndividualRecord.region?.name ||
+                  selectedIndividualRecord.user.regional_assignment ||
+                  'Unassigned'}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Completion</span>
+              <div className="font-bold text-slate-900 mt-0.5 font-mono">
+                {selectedIndividualRecord.completionRate.display}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">On-Time SLA</span>
+              <div className="font-bold text-emerald-800 mt-0.5 font-mono">
+                {selectedIndividualRecord.onTimeRate.display}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Daily Logs</span>
+              <div className="font-bold text-blue-800 mt-0.5">
+                {selectedIndividualRecord.activitiesCount}
+              </div>
+            </div>
+            <div>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Recognized</span>
+              <div className="font-bold text-indigo-800 mt-0.5">
+                {selectedIndividualRecord.recognizedInitiativesCount}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Full Manager Personnel Performance Summary Table */}
+        {isManager && personnelRecords.length > 0 && (
+          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200 text-[11px]">
+                <tr>
+                  <th className="p-2.5">Personnel</th>
+                  <th className="p-2.5">Unit / Position</th>
+                  <th className="p-2.5">Region</th>
+                  <th className="p-2.5 text-center">Assigned</th>
+                  <th className="p-2.5 text-center">Completed</th>
+                  <th className="p-2.5 text-center">Overdue</th>
+                  <th className="p-2.5">Completion Rate</th>
+                  <th className="p-2.5">On-Time Rate</th>
+                  <th className="p-2.5 text-center">Logs</th>
+                  <th className="p-2.5 text-center">Recognized</th>
+                  <th className="p-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-[11px]">
+                {personnelRecords.map((rec) => (
+                  <tr key={rec.user.id} className="hover:bg-slate-50">
+                    <td className="p-2.5 font-semibold text-slate-900">
+                      {rec.user.display_name}
+                      <span className="block text-[10px] font-normal text-slate-400">
+                        {rec.user.email}
+                      </span>
+                    </td>
+                    <td className="p-2.5 text-slate-700">
+                      <div>{rec.position?.title || (rec.user.role === 'manager' ? 'Security Manager' : 'Unassigned')}</div>
+                      <div className="text-[10px] text-slate-400">{rec.unit?.name || 'Unassigned Unit'}</div>
+                    </td>
+                    <td className="p-2.5 text-slate-600">
+                      {rec.region?.name || rec.user.regional_assignment || 'Unassigned'}
+                    </td>
+                    <td className="p-2.5 text-center text-slate-800">{rec.totalAssignedTasks}</td>
+                    <td className="p-2.5 text-center font-semibold text-emerald-700">
+                      {rec.completedTasksCount}
+                    </td>
+                    <td className="p-2.5 text-center font-semibold text-rose-700">
+                      {rec.overdueTasksCount}
+                    </td>
+                    <td className="p-2.5 font-mono text-slate-800">{rec.completionRate.display}</td>
+                    <td className="p-2.5 font-mono text-slate-800">{rec.onTimeRate.display}</td>
+                    <td className="p-2.5 text-center text-blue-700 font-semibold">
+                      {rec.activitiesCount}
+                    </td>
+                    <td className="p-2.5 text-center text-indigo-700 font-semibold">
+                      {rec.recognizedInitiativesCount}
+                    </td>
+                    <td className="p-2.5 text-right whitespace-nowrap space-x-1">
+                      {onViewPersonnelPerformance && (
+                        <button
+                          type="button"
+                          onClick={() => onViewPersonnelPerformance(rec.user.id)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium cursor-pointer"
+                        >
+                          Profile
+                        </button>
+                      )}
+                      {onOpenPrintIndividualReport && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenPrintIndividualReport(rec.user.id, fromDate, toDate)
+                          }
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded font-medium cursor-pointer"
+                        >
+                          Print
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* AI Narrative Assistant Card */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 p-5 rounded-xl border border-slate-700 text-white shadow-md space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -529,7 +1003,7 @@ Field personnel contributions must continue to adhere to corporate physical secu
             type="button"
             onClick={handleGenerateAiSummary}
             disabled={isGeneratingAi}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition space-x-1.5 self-start sm:self-auto disabled:opacity-50"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition space-x-1.5 self-start sm:self-auto disabled:opacity-50 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             <span>{isGeneratingAi ? 'Synthesizing...' : 'Draft Narrative Brief'}</span>
@@ -541,12 +1015,12 @@ Field personnel contributions must continue to adhere to corporate physical secu
             <div className="flex items-center justify-between text-amber-400 font-semibold border-b border-slate-800 pb-2">
               <div className="flex items-center space-x-1.5">
                 <AlertCircle className="w-4 h-4 text-amber-400" />
-                <span>AI-DRAFTED SUMMARY — FOR MANAGER REVIEW ONLY</span>
+                <span>OPERATIONAL SUMMARY DRAFT — FOR MANAGER REVIEW</span>
               </div>
               <button
                 type="button"
                 onClick={handleCopyAiSummary}
-                className="text-slate-300 hover:text-white flex items-center space-x-1 text-xs"
+                className="text-slate-300 hover:text-white flex items-center space-x-1 text-xs cursor-pointer"
               >
                 {copiedAi ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedAi ? 'Copied' : 'Copy Text'}</span>
@@ -559,14 +1033,14 @@ Field personnel contributions must continue to adhere to corporate physical secu
         )}
       </div>
 
-      {/* Structured Sections (Daily Activity Summary, Weekly Accomplishments, Pending, Overdue, Completed) */}
+      {/* Structured Sections */}
       <div className="space-y-6">
-        {/* Section 1: Overdue Tasks Alert (if any) */}
+        {/* Section 1: Overdue Tasks Alert */}
         {overdueTasks.length > 0 && (
           <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-5 shadow-xs space-y-3">
             <h3 className="font-bold text-sm text-rose-900 flex items-center space-x-2">
               <AlertTriangle className="w-4 h-4 text-rose-700" />
-              <span>Overdue Tasks ({overdueTasks.length}) — Action Required</span>
+              <span>Overdue Assignments Report ({overdueTasks.length}) — Action Required</span>
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -621,9 +1095,7 @@ Field personnel contributions must continue to adhere to corporate physical secu
                     </span>
                   </div>
                   <p className="text-slate-600 leading-relaxed">{act.description}</p>
-                  <div className="text-[10px] text-slate-400">
-                    Logged by {act.author_name}
-                  </div>
+                  <div className="text-[10px] text-slate-400">Logged by {act.author_name}</div>
                 </div>
               ))}
             </div>
@@ -637,9 +1109,7 @@ Field personnel contributions must continue to adhere to corporate physical secu
               <h3 className="font-bold text-sm text-slate-900">
                 Completed & Verified Tasks ({completedTasks.length})
               </h3>
-              <p className="text-xs text-slate-500">
-                Officially approved and closed security tasks
-              </p>
+              <p className="text-xs text-slate-500">Officially approved and closed security tasks</p>
             </div>
           </div>
 
@@ -682,7 +1152,7 @@ Field personnel contributions must continue to adhere to corporate physical secu
               <div className="flex items-center space-x-2">
                 <Award className="w-5 h-5 text-indigo-700" />
                 <h3 className="font-bold text-sm text-slate-900">
-                  Member Initiative & Recognition Summary ({recognizedInitiatives.length} Officially Recognized)
+                  Initiative Recognition Report ({recognizedInitiatives.length} Officially Recognized)
                 </h3>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
@@ -694,7 +1164,6 @@ Field personnel contributions must continue to adhere to corporate physical secu
             </span>
           </div>
 
-          {/* Leaderboard and Regional Breakdown in 2 Columns */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             {/* Table A: Recognized Initiatives by Member */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -842,7 +1311,9 @@ Field personnel contributions must continue to adhere to corporate physical secu
                         <td className="p-2.5 font-semibold text-slate-900">{i.title}</td>
                         <td className="p-2.5 text-slate-600">{i.category}</td>
                         <td className="p-2.5 text-slate-800 font-medium">{i.submitted_by_name}</td>
-                        <td className="p-2.5 text-slate-600">{i.location ? `${i.location} (${i.region})` : i.region}</td>
+                        <td className="p-2.5 text-slate-600">
+                          {i.location ? `${i.location} (${i.region})` : i.region}
+                        </td>
                         <td className="p-2.5 font-semibold text-emerald-800">
                           {formatPhilippineDate(i.recognized_at || i.updated_at)}
                         </td>
@@ -858,8 +1329,11 @@ Field personnel contributions must continue to adhere to corporate physical secu
           </div>
 
           {/* Governance Notice */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500 leading-relaxed">
-            <strong>Corporate Governance Disclaimer:</strong> Initiative recognition is an administrative reporting indicator acknowledging proactive physical security vigilance and permitted routine verifications. It is maintained for corporate operations governance and does not constitute an automatic performance appraisal rating, disciplinary finding, or financial incentive.
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500 leading-relaxed flex items-start space-x-2">
+            <Info className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Corporate Governance Disclaimer:</strong> Operational performance statistics, completion rates, and initiative recognition counts are maintained strictly to assist supervisory tracking, workload balancing, and compliance governance. They do not constitute automated HR performance appraisals, disciplinary findings, or financial incentives.
+            </div>
           </div>
         </div>
       </div>

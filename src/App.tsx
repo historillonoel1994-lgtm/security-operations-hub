@@ -4,8 +4,8 @@
  * Implements:
  * 1. Role-based routing: Manager vs Team Member vs Pending User
  * 2. Complete isolation: Logging out unloads all authenticated state immediately
- * 3. 4 Main Pages: Dashboard, Tasks, Daily Activities, and Reports
- * 4. Account controls: User Approvals (Manager) and Profile
+ * 3. Main Pages: Dashboard, Tasks, Daily Activities, Initiatives, Personnel / My Performance, and Reports
+ * 4. Account controls: User Approvals (Manager), Org Assignment Editor, and Profile
  */
 
 import React, { useState } from 'react';
@@ -18,6 +18,8 @@ import { TasksView } from './components/TasksView.tsx';
 import { ActivitiesView } from './components/ActivitiesView.tsx';
 import { ReportsView } from './components/ReportsView.tsx';
 import { InitiativesView } from './components/InitiativesView.tsx';
+import { PersonnelDirectoryView } from './components/PersonnelDirectoryView.tsx';
+import { MyPerformanceView } from './components/MyPerformanceView.tsx';
 import { PrintReportView } from './components/PrintReportView.tsx';
 import { LoginView } from './components/LoginView.tsx';
 import { PendingApprovalScreen } from './components/PendingApprovalScreen.tsx';
@@ -30,13 +32,22 @@ import { CreateInitiativeModal } from './components/CreateInitiativeModal.tsx';
 import { EditInitiativeModal } from './components/EditInitiativeModal.tsx';
 import { InitiativeDetailModal } from './components/InitiativeDetailModal.tsx';
 import { SubmitAccomplishmentModal } from './components/SubmitAccomplishmentModal.tsx';
+import { PersonnelPerformanceModal } from './components/PersonnelPerformanceModal.tsx';
+import { EditPersonnelAssignmentModal } from './components/EditPersonnelAssignmentModal.tsx';
 import { UserApprovalsModal } from './components/UserApprovalsModal.tsx';
 import { UserProfileModal } from './components/UserProfileModal.tsx';
-import { Task, MemberInitiative } from './types/index.ts';
+import { Task, MemberInitiative, UserProfile } from './types/index.ts';
 import { Shield } from 'lucide-react';
 
+interface PrintReportConfig {
+  active: boolean;
+  userId?: string | null;
+  fromDate?: string;
+  toDate?: string;
+}
+
 const MainAppContent: React.FC = () => {
-  const { currentUser, loading, isApproved } = useAuth();
+  const { currentUser, loading, isApproved, isManager, allProfiles } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -46,15 +57,22 @@ const MainAppContent: React.FC = () => {
   // Initiative States
   const [selectedInitiative, setSelectedInitiative] = useState<MemberInitiative | null>(null);
   const [editingInitiative, setEditingInitiative] = useState<MemberInitiative | null>(null);
-  const [accomplishmentInitiative, setAccomplishmentInitiative] = useState<MemberInitiative | null>(null);
+  const [accomplishmentInitiative, setAccomplishmentInitiative] = useState<MemberInitiative | null>(
+    null
+  );
   const [createInitiativeOpen, setCreateInitiativeOpen] = useState(false);
+
+  // Personnel & Performance Modal States
+  const [performanceModalUserId, setPerformanceModalUserId] = useState<string | null>(null);
+  const [editingAssignmentUser, setEditingAssignmentUser] = useState<UserProfile | null>(null);
+  const [defaultTaskAssigneeId, setDefaultTaskAssigneeId] = useState<string | undefined>(undefined);
 
   // Modal Visibility States
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createActivityOpen, setCreateActivityOpen] = useState(false);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [printViewActive, setPrintViewActive] = useState(false);
+  const [printConfig, setPrintConfig] = useState<PrintReportConfig>({ active: false });
 
   // Loading state
   if (loading) {
@@ -81,9 +99,30 @@ const MainAppContent: React.FC = () => {
   }
 
   // Print-Friendly Report View
-  if (printViewActive) {
-    return <PrintReportView onBack={() => setPrintViewActive(false)} />;
+  if (printConfig.active) {
+    return (
+      <PrintReportView
+        onBack={() => setPrintConfig({ active: false })}
+        targetUserId={printConfig.userId}
+        reportFromDate={printConfig.fromDate}
+        reportToDate={printConfig.toDate}
+      />
+    );
   }
+
+  const handleOpenCreateTaskForUser = (userId?: string) => {
+    setDefaultTaskAssigneeId(userId);
+    setCreateTaskOpen(true);
+  };
+
+  const handleOpenPrintIndividualReport = (userId: string, fromDate: string, toDate: string) => {
+    setPrintConfig({
+      active: true,
+      userId,
+      fromDate,
+      toDate,
+    });
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-900">
@@ -100,17 +139,21 @@ const MainAppContent: React.FC = () => {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === 'dashboard' && (
           <DashboardView
-            onCreateTask={() => setCreateTaskOpen(true)}
+            onCreateTask={() => handleOpenCreateTaskForUser(undefined)}
             onSelectTask={(task) => setSelectedTask(task)}
             onNavigateToTasks={() => setActiveTab('tasks')}
             onNavigateToInitiatives={() => setActiveTab('initiatives')}
             onSelectInitiative={(init) => setSelectedInitiative(init)}
+            onNavigateToPersonnel={() => setActiveTab('personnel')}
+            onNavigateToMyPerformance={() => setActiveTab('my_performance')}
+            onOpenApprovals={() => setApprovalsOpen(true)}
+            onViewPersonnelPerformance={(uid) => setPerformanceModalUserId(uid)}
           />
         )}
 
         {activeTab === 'tasks' && (
           <TasksView
-            onCreateTask={() => setCreateTaskOpen(true)}
+            onCreateTask={() => handleOpenCreateTaskForUser(undefined)}
             onSelectTask={(task) => setSelectedTask(task)}
             onOpenEditTask={(task) => setEditingTask(task)}
             onOpenReopenTask={(task) => setReopeningTask(task)}
@@ -130,8 +173,32 @@ const MainAppContent: React.FC = () => {
           <ActivitiesView onLogActivity={() => setCreateActivityOpen(true)} />
         )}
 
+        {activeTab === 'personnel' && isManager && (
+          <PersonnelDirectoryView
+            onViewPerformance={(uid) => setPerformanceModalUserId(uid)}
+            onEditAssignment={(user) => setEditingAssignmentUser(user)}
+            onOpenApprovals={() => setApprovalsOpen(true)}
+          />
+        )}
+
+        {activeTab === 'my_performance' && (
+          <MyPerformanceView
+            onSelectTask={(task) => setSelectedTask(task)}
+            onSelectInitiative={(init) => setSelectedInitiative(init)}
+            onOpenPrintPersonalReport={(fromDate, toDate) =>
+              handleOpenPrintIndividualReport(currentUser.id, fromDate, toDate)
+            }
+          />
+        )}
+
         {activeTab === 'reports' && (
-          <ReportsView onOpenPrintView={() => setPrintViewActive(true)} />
+          <ReportsView
+            onOpenPrintView={() => setPrintConfig({ active: true })}
+            onOpenPrintIndividualReport={handleOpenPrintIndividualReport}
+            onViewPersonnelPerformance={
+              isManager ? (uid) => setPerformanceModalUserId(uid) : undefined
+            }
+          />
         )}
       </main>
 
@@ -148,8 +215,12 @@ const MainAppContent: React.FC = () => {
       {/* Modals */}
       <CreateTaskModal
         isOpen={createTaskOpen}
-        onClose={() => setCreateTaskOpen(false)}
+        onClose={() => {
+          setCreateTaskOpen(false);
+          setDefaultTaskAssigneeId(undefined);
+        }}
         onSuccess={() => setActiveTab('tasks')}
+        defaultAssignedTo={defaultTaskAssigneeId}
       />
 
       <TaskDetailModal
@@ -205,6 +276,43 @@ const MainAppContent: React.FC = () => {
         onClose={() => setAccomplishmentInitiative(null)}
         onSuccess={() => setActiveTab('initiatives')}
       />
+
+      {isManager && (
+        <>
+          <PersonnelPerformanceModal
+            userId={performanceModalUserId}
+            isOpen={Boolean(performanceModalUserId)}
+            onClose={() => setPerformanceModalUserId(null)}
+            onAssignTask={(uid) => {
+              setPerformanceModalUserId(null);
+              handleOpenCreateTaskForUser(uid);
+            }}
+            onEditAssignment={(uid) => {
+              const target = allProfiles.find((p) => p.id === uid) || null;
+              setPerformanceModalUserId(null);
+              setEditingAssignmentUser(target);
+            }}
+            onSelectTask={(task) => {
+              setPerformanceModalUserId(null);
+              setSelectedTask(task);
+            }}
+            onSelectInitiative={(init) => {
+              setPerformanceModalUserId(null);
+              setSelectedInitiative(init);
+            }}
+            onOpenPrintIndividualReport={(uid, fromDate, toDate) => {
+              setPerformanceModalUserId(null);
+              handleOpenPrintIndividualReport(uid, fromDate, toDate);
+            }}
+          />
+
+          <EditPersonnelAssignmentModal
+            person={editingAssignmentUser}
+            isOpen={Boolean(editingAssignmentUser)}
+            onClose={() => setEditingAssignmentUser(null)}
+          />
+        </>
+      )}
 
       <UserApprovalsModal
         isOpen={approvalsOpen}
