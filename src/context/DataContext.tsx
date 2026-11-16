@@ -46,6 +46,7 @@ import {
   DEFAULT_ORGANIZATIONAL_UNITS,
   DEFAULT_POSITIONS,
   DEFAULT_OPERATING_REGIONS,
+  DEFAULT_PERFORMANCE_TARGETS,
 } from '../lib/orgDefaults.ts';
 import { wouldCreateReportingCycle } from '../lib/performanceUtils.ts';
 import { useAuth } from './AuthContext.tsx';
@@ -95,6 +96,7 @@ interface DataContextType {
   orgTablesReady: boolean;
   lastUpdatedAt: string;
   realtimeStatus: 'connecting' | 'live' | 'fallback';
+  dataError: string | null;
   loading: boolean;
   createTask: (payload: CreateTaskPayload) => Promise<Task>;
   editTask: (taskId: string, payload: EditTaskPayload) => Promise<void>;
@@ -139,6 +141,7 @@ interface DataContextType {
     name: string;
     island_group: string;
   }) => Promise<OperatingRegion>;
+  updatePerformanceTarget: (payload: PerformanceTarget) => Promise<PerformanceTarget>;
   refreshData: (options?: { silent?: boolean }) => Promise<void>;
 }
 
@@ -165,13 +168,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
   const [personnelAssignments, setPersonnelAssignments] = useState<PersonnelAssignment[]>([]);
   const [reportingHistory, setReportingHistory] = useState<PersonnelReportingHistory[]>([]);
-  const [performanceTargets, setPerformanceTargets] = useState<PerformanceTarget[]>([]);
+  const [performanceTargets, setPerformanceTargets] = useState<PerformanceTarget[]>(
+    DEFAULT_PERFORMANCE_TARGETS
+  );
   const [mySupervisor, setMySupervisor] = useState<SupervisorSummary | null>(null);
   const [orgTablesReady, setOrgTablesReady] = useState<boolean>(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>(new Date().toISOString());
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'fallback'>(
     'connecting'
   );
+  const [dataError, setDataError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Main fetch function: strictly queries Supabase database tables
@@ -198,6 +204,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const supabase = getSupabaseClient();
 
     try {
+      setDataError(null);
+      const fetchErrors: string[] = [];
+
       // 1. Fetch tasks
       const { data: tasksData, error: tasksErr } = await supabase
         .from('tasks')
@@ -206,6 +215,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (tasksErr) {
         console.error('Error fetching tasks from Supabase:', tasksErr.message);
+        fetchErrors.push(`Tasks: ${tasksErr.message}`);
       } else if (tasksData) {
         setRawTasks(tasksData as Task[]);
       }
@@ -218,6 +228,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (updatesErr) {
         console.error('Error fetching task updates from Supabase:', updatesErr.message);
+        fetchErrors.push(`Task updates: ${updatesErr.message}`);
       } else if (updatesData) {
         setRawUpdates(updatesData as TaskUpdate[]);
       }
@@ -230,6 +241,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (actErr) {
         console.error('Error fetching activities from Supabase:', actErr.message);
+        fetchErrors.push(`Activities: ${actErr.message}`);
       } else if (activitiesData) {
         setRawActivities(activitiesData as SecurityActivity[]);
       }
@@ -308,8 +320,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (histRes.data) {
             setReportingHistory(histRes.data as PersonnelReportingHistory[]);
           }
-          if (tgtRes.data) {
+          if (tgtRes.data && tgtRes.data.length > 0) {
             setPerformanceTargets(tgtRes.data as PerformanceTarget[]);
+          } else {
+            setPerformanceTargets(DEFAULT_PERFORMANCE_TARGETS);
           }
         }
 
@@ -339,9 +353,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRawAuditLogs([]);
       }
 
-      setLastUpdatedAt(new Date().toISOString());
+      if (fetchErrors.length > 0) {
+        setDataError(
+          `Database synchronization warning: ${fetchErrors.join(' | ')}. Displaying last loaded state.`
+        );
+      } else {
+        setLastUpdatedAt(new Date().toISOString());
+      }
     } catch (err: any) {
       console.error('Network exception fetching database records:', err.message);
+      setDataError(
+        `Network error synchronizing with Supabase: ${err.message || 'Unknown error'}. Click Retry Sync to reconnect.`
+      );
     } finally {
       if (!options?.silent) {
         setLoading(false);
@@ -1586,6 +1609,58 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return (data as OperatingRegion) || newReg;
   };
 
+  const updatePerformanceTarget = async (
+    payload: PerformanceTarget
+  ): Promise<PerformanceTarget> => {
+    if (!isManager || !currentUser || !isApproved) {
+      throw new Error('Unauthorized: Only Security Managers can configure performance KPI weights and targets.');
+    }
+    const totalWeight =
+      (payload.weight_completion ?? 0) +
+      (payload.weight_on_time ?? 0) +
+      (payload.weight_activity ?? 0) +
+      (payload.weight_initiative ?? 0);
+    if (totalWeight !== 100) {
+      throw new Error(`Position KPI weights must sum to 100% (currently ${totalWeight}%).`);
+    }
+
+    const nowIso = new Date().toISOString();
+    const record: PerformanceTarget = {
+      ...payload,
+      updated_at: nowIso,
+    };
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('performance_targets')
+      .upsert(record, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.message?.includes('weight_completion') || error.code === '42703') {
+        throw new Error(
+          'Database migration required: Please run "supabase/migration_phase1_2_reconciliation.sql" in your Supabase SQL Editor to enable position-specific weight columns.'
+        );
+      }
+      throw error;
+    }
+
+    await supabase.from('audit_logs').insert({
+      id: `aud-${Date.now()}`,
+      actor_id: currentUser.id,
+      actor_name: currentUser.display_name,
+      action: 'UPDATE_PERFORMANCE_TARGET',
+      record_type: 'performance',
+      record_id: record.id,
+      details: `Updated KPI target "${record.id}": Completion ${record.target_completion_rate}%, On-Time ${record.target_on_time_rate}%, Weights (${record.weight_completion}/${record.weight_on_time}/${record.weight_activity}/${record.weight_initiative})`,
+      created_at: nowIso,
+    });
+
+    await refreshData({ silent: true });
+    return (data as PerformanceTarget) || record;
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -1611,6 +1686,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         orgTablesReady,
         lastUpdatedAt,
         realtimeStatus,
+        dataError,
         loading,
         createTask,
         editTask,
@@ -1628,6 +1704,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createOrganizationalUnit,
         createOrganizationalPosition,
         createOperatingRegion,
+        updatePerformanceTarget,
         refreshData,
       }}
     >

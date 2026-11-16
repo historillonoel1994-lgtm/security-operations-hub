@@ -62,6 +62,7 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
     positions,
     operatingRegions,
     assignmentsByUserId,
+    performanceTargets,
     mySupervisor,
     lastUpdatedAt,
     realtimeStatus,
@@ -93,6 +94,7 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
       activities,
       initiatives,
       initiativeHistory,
+      performanceTargets,
       fromDate,
       toDate,
     });
@@ -107,6 +109,7 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
     activities,
     initiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -298,7 +301,7 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
             </>
           ) : (
             <div className="text-slate-500 italic">
-              Reports directly to Corporate Security Management
+              Reports directly to Security Department Management
             </div>
           )}
         </div>
@@ -370,76 +373,386 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
           <div>
             <div className="font-bold">Welcome to Security Operations Hub</div>
             <p className="mt-0.5">
-              You currently have no assigned tasks or historical logs in this reporting period. Metrics display <strong>No Data</strong> until tasks or activities are recorded.
+              You currently have no assigned tasks or historical logs in this reporting period. Indicators display <strong>N/A</strong> until tasks or activities are recorded.
             </p>
           </div>
         </div>
       )}
 
-      {/* Personal KPI Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 text-xs">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-slate-500 font-semibold uppercase text-[11px]">Total Assigned</span>
-          <div className="text-2xl font-bold text-slate-900 mt-1">{personalRecord.totalAssignedTasks}</div>
-          <span className="text-[11px] text-slate-400">
-            Active: {personalRecord.activeTasksCount}
+      {/* =================================================================== */}
+      {/* A. MY ACCOMPLISHMENTS                                               */}
+      {/* =================================================================== */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            A. My Accomplishments & Position Summary
+          </h2>
+          <span className="text-[11px] text-slate-500">
+            Target Profile:{' '}
+            <strong>
+              {personalRecord.appliedTarget
+                ? positions.find((p) => p.id === personalRecord.appliedTarget?.position_id)?.title ||
+                  organizationalUnits.find((u) => u.id === personalRecord.appliedTarget?.unit_id)?.name ||
+                  personalRecord.appliedTarget.notes?.split(':')[0] ||
+                  'Standard Role Profile'
+                : 'Standard Role Profile'}
+            </strong>
           </span>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-emerald-700 font-semibold uppercase text-[11px]">Completed</span>
-          <div className="text-2xl font-bold text-emerald-900 mt-1">{personalRecord.completedTasksCount}</div>
-          <span className="text-[11px] text-emerald-700">
-            Rate: {personalRecord.completionRate.display}
-          </span>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-blue-700 font-semibold uppercase text-[11px]">Completed On Time</span>
-          <div className="text-2xl font-bold text-blue-900 mt-1">{personalRecord.onTimeRate.display}</div>
-          <span className="text-[11px] text-slate-400">Closed ≤ due date (PHT)</span>
-        </div>
-
-        <div
-          className={`p-4 rounded-xl border shadow-xs ${
-            personalRecord.overdueTasksCount > 0 || personalRecord.returnedTasksCount > 0
-              ? 'bg-rose-50/70 border-rose-300'
-              : 'bg-white border-slate-200'
-          }`}
-        >
-          <span className="text-rose-800 font-semibold uppercase text-[11px]">Overdue / Returned</span>
-          <div className="text-2xl font-bold text-rose-900 mt-1">
-            {personalRecord.overdueTasksCount} / {personalRecord.returnedTasksCount}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 text-xs">
+          <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200 shadow-xs">
+            <span className="text-blue-800 font-semibold uppercase text-[11px]">Operational Index</span>
+            <div className="text-2xl font-bold text-blue-950 mt-1 font-mono">
+              {personalRecord.operationalIndex.display}
+            </div>
+            <span className="text-[10px] text-blue-700">Non-appraisal weighted view</span>
           </div>
-          <span className="text-[11px] text-rose-700">
-            Pending Review: {personalRecord.forReviewCount}
-          </span>
-        </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
-          <span className="text-amber-700 font-semibold uppercase text-[11px] flex items-center space-x-1">
-            <Award className="w-3.5 h-3.5" />
-            <span>My Initiatives</span>
-          </span>
-          <div className="text-2xl font-bold text-amber-900 mt-1">
-            {personalRecord.recognizedInitiativesCount}{' '}
-            <span className="text-xs font-normal text-slate-500">
-              Recognized / {personalRecord.totalInitiativesCount} Submitted
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-emerald-700 font-semibold uppercase text-[11px]">Completed Tasks</span>
+            <div className="text-2xl font-bold text-emerald-900 mt-1">{personalRecord.completedTasksCount}</div>
+            <span className="text-[11px] text-emerald-700 font-mono">
+              Rate: {personalRecord.completionRate.display}
             </span>
           </div>
-          <span className="text-[11px] text-slate-400">Manager-validated checks</span>
-        </div>
-      </div>
 
-      {/* Visual Progress Bars + Function-Specific Indicators */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-blue-700 font-semibold uppercase text-[11px]">Completed On Time</span>
+            <div className="text-2xl font-bold text-blue-900 mt-1 font-mono">{personalRecord.onTimeRate.display}</div>
+            <span className="text-[11px] text-slate-400">Closed ≤ due date (PHT)</span>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <span className="text-slate-600 font-semibold uppercase text-[11px]">Daily Shift Logs</span>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{personalRecord.activitiesCount}</div>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Coverage: {personalRecord.dailyActivityRate.display}
+            </span>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
+            <span className="text-amber-700 font-semibold uppercase text-[11px] flex items-center space-x-1">
+              <Award className="w-3.5 h-3.5" />
+              <span>Recognized Init.</span>
+            </span>
+            <div className="text-2xl font-bold text-amber-900 mt-1">
+              {personalRecord.recognizedInitiativesCount}{' '}
+              <span className="text-xs font-normal text-slate-500">
+                / {personalRecord.totalInitiativesCount} Submitted
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-400">Manager-validated checks</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
+          {/* Role-Specific Indicators */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+            <h3 className="font-bold text-sm text-slate-900">
+              Role-Specific Operational Summary ({personalRecord.position?.title || 'Field Operations'})
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {personalRecord.functionIndicators.map((ind) => (
+                <div key={ind.label} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="text-[11px] text-slate-500 font-medium">{ind.label}</div>
+                  <div className="text-base font-bold text-slate-900 mt-1">{ind.value}</div>
+                  <div className="text-[10px] text-slate-400 mt-1">{ind.detail}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 pt-1">
+              Operational indicators reflect recorded workload activity and do not represent automated disciplinary or appraisal scores.
+            </p>
+          </div>
+
+          {/* Recent Accomplishments */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Recent Verified Accomplishments</span>
+            </h3>
+            {recentCompletedTasks.length === 0 && recognizedInitiatives.length === 0 ? (
+              <p className="text-slate-400 italic py-2">No completed accomplishments yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {recognizedInitiatives.slice(0, 3).map((init) => (
+                  <div
+                    key={init.id}
+                    onClick={() => onSelectInitiative(init)}
+                    className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg cursor-pointer hover:border-amber-400"
+                  >
+                    <div className="text-[10px] font-bold text-amber-800 uppercase">
+                      Recognized Initiative
+                    </div>
+                    <div className="font-semibold text-slate-900">{init.title}</div>
+                    <div className="text-[10px] text-slate-500">
+                      Validated {formatPhilippineDate(init.recognized_at || init.updated_at)}
+                    </div>
+                  </div>
+                ))}
+                {recentCompletedTasks.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => onSelectTask(t)}
+                    className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:border-blue-400"
+                  >
+                    <div className="font-semibold text-slate-900">{t.title}</div>
+                    <div className="text-[10px] text-emerald-700 font-medium">
+                      Completed {formatPhilippineDate(t.completed_at || t.updated_at)} • {t.region}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* =================================================================== */}
+      {/* B. MY CURRENT WORKLOAD & KPI FORMULA TRANSPARENCY                   */}
+      {/* =================================================================== */}
+      <section className="space-y-4">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+          B. My Current Workload & Calculation Transparency
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-xs">
+          {/* Workload Snapshot + Upcoming Deadlines */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+              <Calendar className="w-4 h-4 text-amber-600" />
+              <span>Open Workload ({personalRecord.allOpenTasksCount} Open)</span>
+            </h3>
+            <div className="grid grid-cols-3 gap-2 text-center p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+              <div>
+                <div className="text-[10px] text-slate-500">Period Cohort</div>
+                <div className="font-bold text-slate-900">{personalRecord.totalAssignedTasks}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500">For Review</div>
+                <div className="font-bold text-amber-800">{personalRecord.forReviewCount}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-500">Curr. Overdue</div>
+                <div className={`font-bold ${personalRecord.overdueTasksCount > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                  {personalRecord.overdueTasksCount}
+                </div>
+              </div>
+            </div>
+            {upcomingDeadlines.length === 0 ? (
+              <p className="text-slate-400 italic py-2">No Current Tasks with upcoming deadlines.</p>
+            ) : (
+              <div className="space-y-2">
+                {upcomingDeadlines.map((t) => {
+                  const dueInfo = getDueStatusLabel(t.due_date, t.status);
+                  const cfg = TASK_STATUS_CONFIG[t.status] || TASK_STATUS_CONFIG.assigned;
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => onSelectTask(t)}
+                      className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:border-blue-400 flex items-center justify-between"
+                    >
+                      <div className="truncate pr-2">
+                        <div className="font-semibold text-slate-900 truncate">{t.title}</div>
+                        <div className="text-[10px] text-slate-500">
+                          Due {formatPhilippineDate(t.due_date)} • {cfg.label}
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap ${
+                          dueInfo.isOverdue
+                            ? 'bg-rose-100 text-rose-800'
+                            : dueInfo.isToday
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {dueInfo.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* KPI Breakdown Transparency */}
+          <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+              <h3 className="font-bold text-sm text-slate-900">
+                How My KPIs Are Calculated (Formula & Record Counts)
+              </h3>
+              <span className="text-[11px] text-slate-500">
+                Philippine Time (UTC+8)
+              </span>
+            </div>
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Metric</th>
+                    <th className="p-2.5">Formula</th>
+                    <th className="p-2.5 text-center">Weight</th>
+                    <th className="p-2.5 text-center">Numerator / Denominator</th>
+                    <th className="p-2.5">Current Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {personalRecord.kpiBreakdowns.map((b) => (
+                    <tr key={b.metric}>
+                      <td className="p-2.5 font-semibold text-slate-900">{b.metric}</td>
+                      <td className="p-2.5 text-slate-600">{b.formula}</td>
+                      <td className="p-2.5 text-center font-mono text-slate-700">{b.weightPercent}%</td>
+                      <td className="p-2.5 text-center font-mono text-slate-700">
+                        {b.numerator}/{b.denominator}
+                      </td>
+                      <td className="p-2.5 font-mono font-bold text-blue-900">{b.valueDisplay}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {personalRecord.operationalIndex.formulaDescription}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* =================================================================== */}
+      {/* C. NEEDS ATTENTION                                                  */}
+      {/* =================================================================== */}
+      <section className="space-y-2">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+          C. Needs Attention
+        </h2>
+        <div
+          className={`rounded-xl border p-5 space-y-3 text-xs ${
+            needsAttentionCount > 0
+              ? 'bg-rose-50/60 border-rose-200'
+              : 'bg-emerald-50/50 border-emerald-200'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <h3
+              className={`font-bold text-sm flex items-center space-x-2 ${
+                needsAttentionCount > 0 ? 'text-rose-900' : 'text-emerald-900'
+              }`}
+            >
+              {needsAttentionCount > 0 ? (
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              )}
+              <span>Actionable Items Requiring Immediate Follow-Up ({needsAttentionCount})</span>
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              Overdue tasks, approaching deadlines (next 3 days), and returned submissions
+            </span>
+          </div>
+
+          {needsAttentionCount === 0 ? (
+            <p className="text-emerald-800">
+              All assigned tasks and initiatives are up to date with no overdue or returned items.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {overdueTasks.map((t) => (
+                <div
+                  key={`ov-${t.id}`}
+                  onClick={() => onSelectTask(t)}
+                  className="p-3 bg-white border border-rose-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
+                >
+                  <div className="truncate pr-2">
+                    <span className="text-[10px] font-bold uppercase text-rose-700 block">
+                      Currently Overdue Task
+                    </span>
+                    <div className="font-bold text-slate-900 truncate">{t.title}</div>
+                    <div className="text-[11px] text-slate-500">
+                      Due {formatPhilippineDate(t.due_date)} • {t.region}
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                </div>
+              ))}
+
+              {returnedTasks.map((t) => (
+                <div
+                  key={`ret-${t.id}`}
+                  onClick={() => onSelectTask(t)}
+                  className="p-3 bg-white border border-amber-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
+                >
+                  <div className="truncate pr-2">
+                    <span className="text-[10px] font-bold uppercase text-amber-800 block">
+                      Task Returned for Correction
+                    </span>
+                    <div className="font-bold text-slate-900 truncate">{t.title}</div>
+                    <div className="text-[11px] text-slate-500">
+                      Manager Remarks: {t.remarks || 'Open task to view revision instructions'}
+                    </div>
+                  </div>
+                  <RotateCcw className="w-4 h-4 text-amber-700 flex-shrink-0" />
+                </div>
+              ))}
+
+              {returnedInitiatives.map((init) => (
+                <div
+                  key={`iret-${init.id}`}
+                  onClick={() => onSelectInitiative(init)}
+                  className="p-3 bg-white border border-amber-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
+                >
+                  <div className="truncate pr-2">
+                    <span className="text-[10px] font-bold uppercase text-amber-800 block">
+                      Returned Member Initiative
+                    </span>
+                    <div className="font-bold text-slate-900 truncate">{init.title}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {init.manager_remarks || 'Needs clarification or additional detail'}
+                    </div>
+                  </div>
+                  <Lightbulb className="w-4 h-4 text-amber-700 flex-shrink-0" />
+                </div>
+              ))}
+
+              {approachingTasks
+                .filter((t) => !overdueTasks.some((ov) => ov.id === t.id))
+                .map((t) => (
+                  <div
+                    key={`app-${t.id}`}
+                    onClick={() => onSelectTask(t)}
+                    className="p-3 bg-white border border-blue-200 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
+                  >
+                    <div className="truncate pr-2">
+                      <span className="text-[10px] font-bold uppercase text-blue-700 block">
+                        Approaching Deadline ({getDueStatusLabel(t.due_date, t.status).label})
+                      </span>
+                      <div className="font-bold text-slate-900 truncate">{t.title}</div>
+                      <div className="text-[11px] text-slate-500">
+                        Due {formatPhilippineDate(t.due_date)}
+                      </div>
+                    </div>
+                    <Clock className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* =================================================================== */}
+      {/* D. MY PERFORMANCE TRENDS & E. MANAGER FEEDBACK                      */}
+      {/* =================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-          <h2 className="font-bold text-sm text-slate-900">Progress Indicators & Monthly Trend</h2>
+        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            D. My Performance Trends (Last 4 Months, PHT)
+          </h2>
           <div className="space-y-3">
             <div>
               <div className="flex justify-between mb-1 font-medium text-slate-700">
                 <span>Task Completion Progress</span>
-                <span className="font-bold">{personalRecord.completionRate.display}</span>
+                <span className="font-bold font-mono">{personalRecord.completionRate.display}</span>
               </div>
               <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
                 <div
@@ -452,12 +765,25 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
             <div>
               <div className="flex justify-between mb-1 font-medium text-slate-700">
                 <span>On-Time Delivery Indicator</span>
-                <span className="font-bold text-emerald-700">{personalRecord.onTimeRate.display}</span>
+                <span className="font-bold text-emerald-700 font-mono">{personalRecord.onTimeRate.display}</span>
               </div>
               <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
                 <div
                   className="bg-emerald-600 h-full transition-all"
                   style={{ width: `${personalRecord.onTimeRate.percentage ?? 0}%` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1 font-medium text-slate-700">
+                <span>Daily Shift Log Coverage</span>
+                <span className="font-bold text-indigo-700 font-mono">{personalRecord.dailyActivityRate.display}</span>
+              </div>
+              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                <div
+                  className="bg-indigo-600 h-full transition-all"
+                  style={{ width: `${personalRecord.dailyActivityRate.percentage ?? 0}%` }}
                 />
               </div>
             </div>
@@ -468,193 +794,18 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
               <div key={b.monthKey} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-center">
                 <div className="font-bold text-slate-700 text-[11px]">{b.label}</div>
                 <div className="text-sm font-bold text-emerald-700 mt-1">{b.completedTasks} Done</div>
+                <div className="text-[10px] text-rose-700">{b.overdueTasks} Overdue</div>
                 <div className="text-[10px] text-amber-700">{b.recognizedInitiatives} Recog.</div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-          <h2 className="font-bold text-sm text-slate-900">
-            Role-Specific Operational Summary ({personalRecord.position?.title || 'Field Operations'})
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {personalRecord.functionIndicators.map((ind) => (
-              <div key={ind.label} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="text-[11px] text-slate-500 font-medium">{ind.label}</div>
-                <div className="text-base font-bold text-slate-900 mt-1">{ind.value}</div>
-                <div className="text-[10px] text-slate-400 mt-1">{ind.detail}</div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-500 pt-1">
-            Operational indicators reflect recorded workload activity and do not represent automated disciplinary or appraisal scores.
-          </p>
-        </div>
-      </div>
-
-      {/* NEEDS ATTENTION SECTION */}
-      <div
-        className={`rounded-xl border p-5 space-y-3 text-xs ${
-          needsAttentionCount > 0
-            ? 'bg-rose-50/60 border-rose-200'
-            : 'bg-emerald-50/50 border-emerald-200'
-        }`}
-      >
-        <div className="flex items-center justify-between">
-          <h2
-            className={`font-bold text-sm flex items-center space-x-2 ${
-              needsAttentionCount > 0 ? 'text-rose-900' : 'text-emerald-900'
-            }`}
-          >
-            {needsAttentionCount > 0 ? (
-              <AlertTriangle className="w-4 h-4 text-rose-600" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            )}
-            <span>Needs Attention ({needsAttentionCount})</span>
-          </h2>
-          <span className="text-[11px] text-slate-500">
-            Overdue tasks, approaching deadlines (next 3 days), and returned submissions
-          </span>
-        </div>
-
-        {needsAttentionCount === 0 ? (
-          <p className="text-emerald-800">
-            All assigned tasks and initiatives are up to date with no overdue or returned items.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {overdueTasks.map((t) => (
-              <div
-                key={`ov-${t.id}`}
-                onClick={() => onSelectTask(t)}
-                className="p-3 bg-white border border-rose-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
-              >
-                <div className="truncate pr-2">
-                  <span className="text-[10px] font-bold uppercase text-rose-700 block">
-                    Overdue Task
-                  </span>
-                  <div className="font-bold text-slate-900 truncate">{t.title}</div>
-                  <div className="text-[11px] text-slate-500">
-                    Due {formatPhilippineDate(t.due_date)} • {t.region}
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-rose-600 flex-shrink-0" />
-              </div>
-            ))}
-
-            {returnedTasks.map((t) => (
-              <div
-                key={`ret-${t.id}`}
-                onClick={() => onSelectTask(t)}
-                className="p-3 bg-white border border-amber-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
-              >
-                <div className="truncate pr-2">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                    Task Returned for Correction
-                  </span>
-                  <div className="font-bold text-slate-900 truncate">{t.title}</div>
-                  <div className="text-[11px] text-slate-500">
-                    Manager Remarks: {t.remarks || 'Open task to view revision instructions'}
-                  </div>
-                </div>
-                <RotateCcw className="w-4 h-4 text-amber-700 flex-shrink-0" />
-              </div>
-            ))}
-
-            {returnedInitiatives.map((init) => (
-              <div
-                key={`iret-${init.id}`}
-                onClick={() => onSelectInitiative(init)}
-                className="p-3 bg-white border border-amber-300 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
-              >
-                <div className="truncate pr-2">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                    Returned Member Initiative
-                  </span>
-                  <div className="font-bold text-slate-900 truncate">{init.title}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {init.manager_remarks || 'Needs clarification or additional detail'}
-                  </div>
-                </div>
-                <Lightbulb className="w-4 h-4 text-amber-700 flex-shrink-0" />
-              </div>
-            ))}
-
-            {approachingTasks
-              .filter((t) => !overdueTasks.some((ov) => ov.id === t.id))
-              .map((t) => (
-                <div
-                  key={`app-${t.id}`}
-                  onClick={() => onSelectTask(t)}
-                  className="p-3 bg-white border border-blue-200 rounded-lg hover:border-blue-400 cursor-pointer flex items-center justify-between"
-                >
-                  <div className="truncate pr-2">
-                    <span className="text-[10px] font-bold uppercase text-blue-700 block">
-                      Approaching Deadline ({getDueStatusLabel(t.due_date, t.status).label})
-                    </span>
-                    <div className="font-bold text-slate-900 truncate">{t.title}</div>
-                    <div className="text-[11px] text-slate-500">
-                      Due {formatPhilippineDate(t.due_date)}
-                    </div>
-                  </div>
-                  <Clock className="w-4 h-4 text-blue-600 flex-shrink-0" />
-                </div>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {/* Bottom 3-Column Section: Recent Accomplishments, Latest Manager Feedback, Upcoming Deadlines */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-xs">
-        {/* Recent Accomplishments */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-          <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Recent Accomplishments</span>
-          </h3>
-          {recentCompletedTasks.length === 0 && recognizedInitiatives.length === 0 ? (
-            <p className="text-slate-400 italic py-2">No completed accomplishments yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {recognizedInitiatives.slice(0, 3).map((init) => (
-                <div
-                  key={init.id}
-                  onClick={() => onSelectInitiative(init)}
-                  className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg cursor-pointer hover:border-amber-400"
-                >
-                  <div className="text-[10px] font-bold text-amber-800 uppercase">
-                    Recognized Initiative
-                  </div>
-                  <div className="font-semibold text-slate-900">{init.title}</div>
-                  <div className="text-[10px] text-slate-500">
-                    Validated {formatPhilippineDate(init.recognized_at || init.updated_at)}
-                  </div>
-                </div>
-              ))}
-              {recentCompletedTasks.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => onSelectTask(t)}
-                  className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:border-blue-400"
-                >
-                  <div className="font-semibold text-slate-900">{t.title}</div>
-                  <div className="text-[10px] text-emerald-700 font-medium">
-                    Completed {formatPhilippineDate(t.completed_at || t.updated_at)} • {t.region}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Latest Manager Feedback */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-          <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+        <section className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-2">
             <MessageSquare className="w-4 h-4 text-blue-600" />
-            <span>Latest Manager Feedback</span>
-          </h3>
+            <span>E. Manager Feedback & Review Remarks</span>
+          </h2>
           {latestManagerFeedback.length === 0 ? (
             <p className="text-slate-400 italic py-2">No manager review comments recorded yet.</p>
           ) : (
@@ -676,50 +827,7 @@ export const MyPerformanceView: React.FC<MyPerformanceViewProps> = ({
               ))}
             </div>
           )}
-        </div>
-
-        {/* Upcoming Deadlines */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
-          <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
-            <Calendar className="w-4 h-4 text-amber-600" />
-            <span>Upcoming Deadlines</span>
-          </h3>
-          {upcomingDeadlines.length === 0 ? (
-            <p className="text-slate-400 italic py-2">No Current Tasks with upcoming deadlines.</p>
-          ) : (
-            <div className="space-y-2">
-              {upcomingDeadlines.map((t) => {
-                const dueInfo = getDueStatusLabel(t.due_date, t.status);
-                const cfg = TASK_STATUS_CONFIG[t.status] || TASK_STATUS_CONFIG.assigned;
-                return (
-                  <div
-                    key={t.id}
-                    onClick={() => onSelectTask(t)}
-                    className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:border-blue-400 flex items-center justify-between"
-                  >
-                    <div className="truncate pr-2">
-                      <div className="font-semibold text-slate-900 truncate">{t.title}</div>
-                      <div className="text-[10px] text-slate-500">
-                        Due {formatPhilippineDate(t.due_date)} • {cfg.label}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap ${
-                        dueInfo.isOverdue
-                          ? 'bg-rose-100 text-rose-800'
-                          : dueInfo.isToday
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-blue-50 text-blue-700'
-                      }`}
-                    >
-                      {dueInfo.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        </section>
       </div>
     </div>
   );

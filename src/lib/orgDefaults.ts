@@ -4,6 +4,7 @@ import {
   OperatingRegion,
   EmploymentCategory,
   OperationalStatus,
+  PerformanceTarget,
 } from '../types/index.ts';
 
 export const DEFAULT_ORGANIZATIONAL_UNITS: OrganizationalUnit[] = [
@@ -11,7 +12,7 @@ export const DEFAULT_ORGANIZATIONAL_UNITS: OrganizationalUnit[] = [
     id: 'unit-exec',
     code: 'EXEC',
     name: 'Executive & Department Management',
-    description: 'VP & Head of Security and Corporate Security Manager oversight',
+    description: 'VP & Head of Security and Security Manager oversight (Security Department)',
     parent_unit_id: null,
     sort_order: 1,
     is_active: true,
@@ -65,7 +66,7 @@ export const DEFAULT_POSITIONS: OrganizationalPosition[] = [
     unit_id: 'unit-exec',
     hierarchy_level: 1,
     is_supervisory: true,
-    description: 'Executive security oversight across corporate operations',
+    description: 'Executive security oversight across Security Department operations',
     is_active: true,
   },
   {
@@ -137,20 +138,123 @@ export const DEFAULT_POSITIONS: OrganizationalPosition[] = [
     unit_id: 'unit-supp',
     hierarchy_level: 4,
     is_supervisory: false,
-    description: 'Authorized corporate security support personnel',
+    description: 'Authorized Security Department support personnel',
     is_active: true,
   },
 ];
 
 export const DEFAULT_OPERATING_REGIONS: OperatingRegion[] = [
-  { id: 'reg-ncr', code: 'NCR', name: 'NCR - Metro Manila', island_group: 'Luzon', sort_order: 1, is_active: true },
+  { id: 'reg-ncr', code: 'NCR', name: 'NCR & Rizal', island_group: 'Luzon', sort_order: 1, is_active: true },
   { id: 'reg-nlz', code: 'NLZ', name: 'North Luzon', island_group: 'Luzon', sort_order: 2, is_active: true },
   { id: 'reg-clz', code: 'CLZ', name: 'Central Luzon', island_group: 'Luzon', sort_order: 3, is_active: true },
   { id: 'reg-slz', code: 'SLZ', name: 'South Luzon', island_group: 'Luzon', sort_order: 4, is_active: true },
   { id: 'reg-bcl', code: 'BCL', name: 'Bicol', island_group: 'Luzon', sort_order: 5, is_active: true },
-  { id: 'reg-vis', code: 'VIS', name: 'Visayas', island_group: 'Visayas', sort_order: 6, is_active: true },
-  { id: 'reg-min', code: 'MIN', name: 'Mindanao', island_group: 'Mindanao', sort_order: 7, is_active: true },
-  { id: 'reg-nat', code: 'NAT', name: 'Nationwide / Multi-Site', island_group: 'Nationwide', sort_order: 8, is_active: true },
+  { id: 'reg-vis-6', code: 'VIS6', name: 'Visayas Region 6', island_group: 'Visayas', sort_order: 6, is_active: true },
+  { id: 'reg-vis-7', code: 'VIS7', name: 'Visayas Region 7', island_group: 'Visayas', sort_order: 7, is_active: true },
+  { id: 'reg-min-10', code: 'MIN10', name: 'Mindanao Region 10', island_group: 'Mindanao', sort_order: 8, is_active: true },
+  { id: 'reg-min-11', code: 'MIN11', name: 'Mindanao Region 11', island_group: 'Mindanao', sort_order: 9, is_active: true },
+  { id: 'reg-nat', code: 'NAT', name: 'Nationwide / Multi-Site', island_group: 'Nationwide', sort_order: 10, is_active: true },
+];
+
+export const DEFAULT_PERFORMANCE_TARGETS: PerformanceTarget[] = [
+  {
+    id: 'tgt-rso-sup',
+    unit_id: 'unit-rso',
+    position_id: 'pos-rso-sup',
+    target_completion_rate: 90,
+    target_on_time_rate: 85,
+    monthly_initiative_goal: 1,
+    weight_completion: 30,
+    weight_on_time: 35,
+    weight_activity: 20,
+    weight_initiative: 15,
+    daily_activity_target: 1,
+    notes: 'Regional Security Supervisor: balanced site SLA, team inspection follow-up, and field logs',
+  },
+  {
+    id: 'tgt-inv',
+    unit_id: 'unit-rso',
+    position_id: 'pos-inv',
+    target_completion_rate: 92,
+    target_on_time_rate: 88,
+    monthly_initiative_goal: 1,
+    weight_completion: 35,
+    weight_on_time: 35,
+    weight_activity: 15,
+    weight_initiative: 15,
+    daily_activity_target: 1,
+    notes: 'Investigator: case follow-up closure, documentation timeliness, and preventive findings',
+  },
+  {
+    id: 'tgt-sec-off',
+    unit_id: 'unit-rso',
+    position_id: 'pos-sec-off',
+    target_completion_rate: 90,
+    target_on_time_rate: 85,
+    monthly_initiative_goal: 1,
+    weight_completion: 30,
+    weight_on_time: 30,
+    weight_activity: 25,
+    weight_initiative: 15,
+    daily_activity_target: 1,
+    notes: 'Security Officer: field inspection execution, daily shift logs, and proactive checks',
+  },
+  {
+    id: 'tgt-scc-sup',
+    unit_id: 'unit-scc',
+    position_id: 'pos-scc-sup',
+    target_completion_rate: 95,
+    target_on_time_rate: 90,
+    monthly_initiative_goal: 1,
+    weight_completion: 30,
+    weight_on_time: 35,
+    weight_activity: 20,
+    weight_initiative: 15,
+    daily_activity_target: 1,
+    notes: 'Command Center Supervisor: SOC escalation timeliness, audit resolution, and shift watch logs',
+  },
+  {
+    id: 'tgt-cctv',
+    unit_id: 'unit-scc',
+    position_id: 'pos-cctv',
+    target_completion_rate: 95,
+    target_on_time_rate: 90,
+    monthly_initiative_goal: 1,
+    weight_completion: 25,
+    weight_on_time: 30,
+    weight_activity: 35,
+    weight_initiative: 10,
+    daily_activity_target: 2,
+    notes: 'CCTV Operator: consistent shift monitoring logs, camera/access audits, and prompt escalation',
+  },
+  {
+    id: 'tgt-rmo',
+    unit_id: 'unit-rpm',
+    position_id: 'pos-rmo',
+    target_completion_rate: 95,
+    target_on_time_rate: 92,
+    monthly_initiative_goal: 1,
+    weight_completion: 35,
+    weight_on_time: 40,
+    weight_activity: 15,
+    weight_initiative: 10,
+    daily_activity_target: 1,
+    notes: 'Report Management Officer: report compliance timeliness, accuracy, and audit follow-ups',
+  },
+  {
+    id: 'tgt-rso',
+    unit_id: 'unit-rso',
+    position_id: null,
+    target_completion_rate: 90,
+    target_on_time_rate: 85,
+    monthly_initiative_goal: 1,
+    weight_completion: 35,
+    weight_on_time: 35,
+    weight_activity: 15,
+    weight_initiative: 15,
+    daily_activity_target: 1,
+    notes: 'Standard Regional Security Operations operational benchmark',
+  },
 ];
 
 export const EMPLOYMENT_CATEGORY_LABELS: Record<EmploymentCategory, string> = {
@@ -206,6 +310,10 @@ export function resolveOperatingRegionId(
   if (
     s.includes('ncr') ||
     s.includes('metro manila') ||
+    s.includes('rizal') ||
+    s.includes('antipolo') ||
+    s.includes('cainta') ||
+    s.includes('taytay') ||
     s.includes('bgc') ||
     s.includes('makati') ||
     s.includes('pasig') ||
@@ -247,27 +355,73 @@ export function resolveOperatingRegionId(
   ) {
     return 'reg-bcl';
   }
+
+  // Visayas Subdivisions: Region 6 vs Region 7 (checked before generic Visayas)
   if (
-    s.includes('visayas') ||
-    s.includes('cebu') ||
-    s.includes('mandaue') ||
+    s.includes('visayas region 6') ||
+    s.includes('region 6') ||
+    /\bregion\s+vi\b/.test(s) ||
+    s.includes('western visayas') ||
     s.includes('iloilo') ||
     s.includes('bacolod') ||
-    /\bregion\s+(vi|vii|viii)\b/.test(s)
+    s.includes('negros occidental') ||
+    s.includes('kalibo') ||
+    s.includes('capiz')
   ) {
-    return 'reg-vis';
+    return 'reg-vis-6';
+  }
+  if (
+    s.includes('visayas region 7') ||
+    s.includes('region 7') ||
+    /\bregion\s+vii\b/.test(s) ||
+    s.includes('central visayas') ||
+    s.includes('cebu') ||
+    s.includes('mandaue') ||
+    s.includes('lapu-lapu') ||
+    s.includes('bohol') ||
+    s.includes('dumaguete')
+  ) {
+    return 'reg-vis-7';
+  }
+  if (s.includes('visayas') || /\bregion\s+viii\b/.test(s)) {
+    return regions.some((r) => r.id === 'reg-vis') ? 'reg-vis' : 'reg-vis-7';
+  }
+
+  // Mindanao Subdivisions: Region 10 vs Region 11 (checked before generic Mindanao)
+  if (
+    s.includes('mindanao region 10') ||
+    s.includes('region 10') ||
+    /\bregion\s+x\b/.test(s) ||
+    s.includes('northern mindanao') ||
+    s.includes('cagayan de oro') ||
+    /\bcdo\b/.test(s) ||
+    s.includes('iligan') ||
+    s.includes('bukidnon') ||
+    s.includes('misamis')
+  ) {
+    return 'reg-min-10';
+  }
+  if (
+    s.includes('mindanao region 11') ||
+    s.includes('region 11') ||
+    /\bregion\s+xi\b/.test(s) ||
+    s.includes('davao') ||
+    s.includes('tagum') ||
+    s.includes('digos') ||
+    s.includes('panabo')
+  ) {
+    return 'reg-min-11';
   }
   if (
     s.includes('mindanao') ||
-    s.includes('davao') ||
-    s.includes('cagayan de oro') ||
     s.includes('zamboanga') ||
     s.includes('gensan') ||
     s.includes('caraga') ||
-    /\bregion\s+(ix|x|xi|xii|xiii)\b/.test(s)
+    /\bregion\s+(ix|xii|xiii)\b/.test(s)
   ) {
-    return 'reg-min';
+    return regions.some((r) => r.id === 'reg-min') ? 'reg-min' : 'reg-min-11';
   }
+
   if (
     s.includes('north luzon') ||
     /\bregion\s+(i|ii)\b/.test(s) ||

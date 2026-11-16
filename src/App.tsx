@@ -50,6 +50,7 @@ const MainAppContent: React.FC = () => {
   const { currentUser, loading, isApproved, isManager, allProfiles } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [tasksInitialFilter, setTasksInitialFilter] = useState<string>('all');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [reopeningTask, setReopeningTask] = useState<Task | null>(null);
@@ -133,7 +134,13 @@ const MainAppContent: React.FC = () => {
       />
 
       {/* Navigation Tabs */}
-      <NavigationTabs activeTab={activeTab} onTabChange={setActiveTab} />
+      <NavigationTabs
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          if (tab === 'tasks') setTasksInitialFilter('all');
+          setActiveTab(tab);
+        }}
+      />
 
       {/* Main Content Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -141,7 +148,10 @@ const MainAppContent: React.FC = () => {
           <DashboardView
             onCreateTask={() => handleOpenCreateTaskForUser(undefined)}
             onSelectTask={(task) => setSelectedTask(task)}
-            onNavigateToTasks={() => setActiveTab('tasks')}
+            onNavigateToTasks={(filter) => {
+              setTasksInitialFilter(filter || 'all');
+              setActiveTab('tasks');
+            }}
             onNavigateToInitiatives={() => setActiveTab('initiatives')}
             onSelectInitiative={(init) => setSelectedInitiative(init)}
             onNavigateToPersonnel={() => setActiveTab('personnel')}
@@ -157,6 +167,7 @@ const MainAppContent: React.FC = () => {
             onSelectTask={(task) => setSelectedTask(task)}
             onOpenEditTask={(task) => setEditingTask(task)}
             onOpenReopenTask={(task) => setReopeningTask(task)}
+            initialStatusFilter={tasksInitialFilter}
           />
         )}
 
@@ -205,7 +216,7 @@ const MainAppContent: React.FC = () => {
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Security Operations Hub (SOH) • Corporate Security Department</span>
+          <span>Security Operations Hub (SOH) • Security Department Command & Control</span>
           <span className="text-[11px] text-slate-400">
             Authorized Personnel Access Only • All Actions Logged
           </span>

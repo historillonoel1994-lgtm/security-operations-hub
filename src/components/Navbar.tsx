@@ -43,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenApprovals, onOpenProfile }
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
-                Corporate Security Command & Field Task Management
+                Security Department Command & Field Task Management System
               </p>
             </div>
           </div>

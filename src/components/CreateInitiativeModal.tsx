@@ -163,7 +163,7 @@ export const CreateInitiativeModal: React.FC<CreateInitiativeModalProps> = ({
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1 text-xs text-slate-700">
             <div className="flex items-center space-x-1.5 font-semibold text-slate-900">
               <ShieldAlert className="w-4 h-4 text-blue-600" />
-              <span>Corporate Security Policy & Governance</span>
+              <span>Security Department Policy & Governance</span>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
               Initiatives submitted here recognize proactive security contributions and routine preventive checks.

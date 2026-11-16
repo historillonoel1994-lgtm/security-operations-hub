@@ -37,7 +37,7 @@ export const PendingApprovalScreen: React.FC = () => {
           </p>
 
           <p className="leading-relaxed text-slate-600">
-            An authorized <span className="font-semibold text-slate-900">Corporate Security Manager</span> must review and activate your profile before you can access regional task lists, inspection forms, or shift activities.
+            An authorized <span className="font-semibold text-slate-900">Security Manager</span> must review and activate your profile before you can access regional task lists, inspection forms, or shift activities.
           </p>
 
           {/* Action Buttons */}

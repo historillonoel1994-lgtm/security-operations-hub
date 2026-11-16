@@ -1,15 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
 import {
   PersonnelPerformanceRecord,
   DateRangePreset,
   UserProfile,
+  PerformanceTarget,
 } from '../types/index.ts';
 import {
   computePersonnelPerformance,
   computeUnitPerformanceSummaries,
   computeRegionalPerformanceSummaries,
+  computeConsolidatedRegionRollups,
   getDateRangeForPreset,
 } from '../lib/performanceUtils.ts';
 import { OPERATIONAL_STATUS_CONFIG } from '../lib/orgDefaults.ts';
@@ -35,6 +37,9 @@ import {
   Settings,
   UserCheck,
   Info,
+  Sliders,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 interface PersonnelDirectoryViewProps {
@@ -61,13 +66,16 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
     positions,
     operatingRegions,
     assignmentsByUserId,
+    performanceTargets,
     orgTablesReady,
     lastUpdatedAt,
     realtimeStatus,
+    dataError,
     refreshData,
     createOrganizationalUnit,
     createOrganizationalPosition,
     createOperatingRegion,
+    updatePerformanceTarget,
   } = useData();
 
   const [subTab, setSubTab] = useState<'directory' | 'team_performance' | 'hierarchy'>(
@@ -91,6 +99,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
   const [positionFilter, setPositionFilter] = useState('all');
   const [supervisorFilter, setSupervisorFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'pending'>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Team Performance drill-down state
   const [selectedUnitDrill, setSelectedUnitDrill] = useState<string | null>(null);
@@ -106,9 +115,19 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
   const [newRegCode, setNewRegCode] = useState('');
   const [newRegName, setNewRegName] = useState('');
   const [newRegIsland, setNewRegIsland] = useState('Luzon');
+  const [selectedTargetId, setSelectedTargetId] = useState<string>(() => performanceTargets[0]?.id || 'tgt-rso');
+  const [targetDraft, setTargetDraft] = useState<PerformanceTarget | null>(() => performanceTargets[0] || null);
+  const [savingTarget, setSavingTarget] = useState(false);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
   const [configErr, setConfigErr] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const match = performanceTargets.find((t) => t.id === selectedTargetId) || performanceTargets[0] || null;
+    if (match) {
+      setTargetDraft({ ...match });
+    }
+  }, [performanceTargets, selectedTargetId]);
 
   const profilesById = useMemo(() => {
     const map: Record<string, UserProfile> = {};
@@ -132,6 +151,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
         activities,
         initiatives: allDepartmentInitiatives,
         initiativeHistory,
+        performanceTargets,
         fromDate,
         toDate,
       })
@@ -148,6 +168,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
     activities,
     allDepartmentInitiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -160,6 +181,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
         const match =
           rec.user.display_name.toLowerCase().includes(q) ||
           rec.user.email.toLowerCase().includes(q) ||
+          rec.user.id.toLowerCase().includes(q) ||
           (rec.position?.title || '').toLowerCase().includes(q) ||
           (rec.assignment?.assigned_site || '').toLowerCase().includes(q);
         if (!match) return false;
@@ -218,6 +240,11 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
       fromDate,
       toDate,
     ]
+  );
+
+  const consolidatedRollups = useMemo(
+    () => computeConsolidatedRegionRollups(regionalSummaries),
+    [regionalSummaries]
   );
 
   // Unique supervisors currently assigned in directory for filter dropdown
@@ -305,6 +332,45 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
     } catch (err: any) {
       setConfigErr(err.message);
     }
+  };
+
+  const handleSelectTargetForEdit = (id: string) => {
+    setSelectedTargetId(id);
+    const found = performanceTargets.find((t) => t.id === id) || null;
+    setTargetDraft(found ? { ...found } : null);
+    setConfigMsg(null);
+    setConfigErr(null);
+  };
+
+  const getTargetLabel = (t: PerformanceTarget | null | undefined): string => {
+    if (!t) return 'Standard Target';
+    const posTitle = t.position_id ? positions.find((p) => p.id === t.position_id)?.title : null;
+    if (posTitle) return posTitle;
+    const unitName = t.unit_id ? organizationalUnits.find((u) => u.id === t.unit_id)?.name : null;
+    if (unitName) return `${unitName} (Unit Default)`;
+    return t.notes?.split(':')[0] || t.id;
+  };
+
+  const handleSavePerformanceTarget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetDraft) return;
+    setConfigMsg(null);
+    setConfigErr(null);
+    setSavingTarget(true);
+    try {
+      await updatePerformanceTarget(targetDraft);
+      setConfigMsg(`Saved KPI targets & position weights for "${getTargetLabel(targetDraft)}".`);
+    } catch (err: any) {
+      setConfigErr(err.message || 'Failed to update KPI target.');
+    } finally {
+      setSavingTarget(false);
+    }
+  };
+
+  const handleCopyUserId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 1500);
   };
 
   // Build recursive org chart nodes for approved profiles
@@ -418,6 +484,25 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
         </div>
       </div>
 
+      {/* Data Sync Error Banner */}
+      {dataError && (
+        <div className="p-4 bg-rose-50 border border-rose-300 rounded-xl flex items-center justify-between gap-3 text-xs text-rose-900">
+          <div className="flex items-start space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-700 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">Supabase Sync Notice:</span> {dataError}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            className="px-3 py-1 bg-rose-700 hover:bg-rose-800 text-white font-semibold rounded-lg cursor-pointer"
+          >
+            Retry Sync
+          </button>
+        </div>
+      )}
+
       {/* Migration Notice if org tables are not yet applied in Supabase */}
       {!orgTablesReady && (
         <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start space-x-3 text-xs text-amber-900">
@@ -425,9 +510,13 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
           <div>
             <h3 className="font-bold text-sm">Organizational & Hierarchy Migration Pending</h3>
             <p className="mt-0.5 leading-relaxed">
-              Your registered Supabase profiles and live task/activity data are loaded cleanly below. To persist custom units, positions, supervisors, and reporting history in Supabase, please execute{' '}
+              Your registered Supabase profiles and live task/activity data are loaded cleanly below. To persist custom units, positions, supervisors, regional subdivisions, and position KPI weights in Supabase, execute{' '}
               <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-semibold">
                 supabase/migration_personnel_hierarchy.sql
+              </code>{' '}
+              and{' '}
+              <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-semibold">
+                supabase/migration_phase1_2_reconciliation.sql
               </code>{' '}
               in your Supabase SQL Editor.
             </p>
@@ -634,13 +723,14 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 uppercase font-semibold border-b border-slate-200 text-[11px]">
                   <tr>
-                    <th className="px-4 py-3">Personnel & Account</th>
+                    <th className="px-4 py-3">Personnel, UUID & Account</th>
                     <th className="px-4 py-3">Position & Unit</th>
                     <th className="px-4 py-3">Region / Assigned Site</th>
                     <th className="px-4 py-3">Immediate Supervisor</th>
-                    <th className="px-4 py-3 text-center">Active</th>
-                    <th className="px-4 py-3 text-center">Overdue</th>
+                    <th className="px-4 py-3 text-center">Open Tasks</th>
+                    <th className="px-4 py-3 text-center" title="All uncompleted overdue tasks (Philippine Time)">Curr. Overdue</th>
                     <th className="px-4 py-3 text-center">Completed</th>
+                    <th className="px-4 py-3 text-center" title="Position-weighted non-appraisal Operational Index">Op. Index</th>
                     <th className="px-4 py-3 text-center">Recognized</th>
                     <th className="px-4 py-3">Last Activity</th>
                     <th className="px-4 py-3 text-right">Actions</th>
@@ -649,7 +739,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                 <tbody className="divide-y divide-slate-200">
                   {filteredPersonnel.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="p-8 text-center text-slate-400">
+                      <td colSpan={11} className="p-8 text-center text-slate-400">
                         No registered personnel match your filter criteria.
                       </td>
                     </tr>
@@ -663,7 +753,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
 
                       return (
                         <tr key={rec.user.id} className="hover:bg-slate-50/80 transition">
-                          {/* Name, Email, App Role, Account Status */}
+                          {/* Name, UUID, Email, App Role, Approval & Operational Status */}
                           <td className="px-4 py-3">
                             <button
                               type="button"
@@ -674,6 +764,21 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                             </button>
                             <div className="text-[11px] font-mono text-slate-500">
                               {rec.user.email}
+                            </div>
+                            <div className="flex items-center gap-1 mt-0.5 text-[10px] font-mono text-slate-400">
+                              <span title={rec.user.id}>UUID: {rec.user.id.slice(0, 8)}...{rec.user.id.slice(-4)}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyUserId(rec.user.id)}
+                                className="text-slate-400 hover:text-blue-600 cursor-pointer"
+                                title="Copy full Supabase User UUID"
+                              >
+                                {copiedId === rec.user.id ? (
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3 h-3" />
+                                )}
+                              </button>
                             </div>
                             <div className="flex flex-wrap items-center gap-1 mt-1">
                               <span
@@ -694,11 +799,16 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                                   Deactivated
                                 </span>
                               ) : (
-                                <span
-                                  className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${opBadge.badgeClass}`}
-                                >
-                                  {opBadge.label}
-                                </span>
+                                <>
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    Approved
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${opBadge.badgeClass}`}
+                                  >
+                                    {opBadge.label}
+                                  </span>
+                                </>
                               )}
                             </div>
                           </td>
@@ -739,12 +849,17 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                             )}
                           </td>
 
-                          {/* Active Tasks */}
+                          {/* Open Tasks (all non-completed) */}
                           <td className="px-4 py-3 text-center font-bold text-slate-800">
-                            {rec.activeTasksCount}
+                            {rec.allOpenTasksCount}
+                            {rec.activeTasksCount !== rec.allOpenTasksCount && (
+                              <span className="block text-[9px] font-normal text-slate-400">
+                                {rec.activeTasksCount} in period
+                              </span>
+                            )}
                           </td>
 
-                          {/* Overdue */}
+                          {/* Currently Overdue */}
                           <td className="px-4 py-3 text-center">
                             <span
                               className={`font-bold px-2 py-0.5 rounded-full ${
@@ -762,9 +877,19 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                             <span className="font-bold text-emerald-700">
                               {rec.completedTasksCount}
                             </span>
-                            {rec.totalAssignedTasks === 0 && (
-                              <span className="block text-[9px] text-slate-400">No Data</span>
-                            )}
+                            <span className="block text-[9px] text-slate-400 font-mono">
+                              {rec.completionRate.display}
+                            </span>
+                          </td>
+
+                          {/* Operational Index (Non-Appraisal) */}
+                          <td className="px-4 py-3 text-center" title={rec.operationalIndex.formulaDescription}>
+                            <span className="font-mono font-bold text-blue-900">
+                              {rec.operationalIndex.display}
+                            </span>
+                            <span className="block text-[9px] text-slate-400">
+                              SLA: {rec.onTimeRate.display === 'N/A' ? 'N/A' : `${rec.onTimeRate.percentage}%`}
+                            </span>
                           </td>
 
                           {/* Recognized Initiatives */}
@@ -789,7 +914,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                                 </div>
                               </div>
                             ) : (
-                              <span className="text-slate-400 italic">No Data</span>
+                              <span className="text-slate-400 italic">N/A</span>
                             )}
                           </td>
 
@@ -851,9 +976,9 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                   <tr>
                     <th className="px-4 py-3">Department Unit</th>
                     <th className="px-4 py-3 text-center">Active Users</th>
-                    <th className="px-4 py-3 text-center">Active Tasks</th>
+                    <th className="px-4 py-3 text-center">Open Tasks</th>
                     <th className="px-4 py-3 text-center">Completed</th>
-                    <th className="px-4 py-3 text-center">Overdue</th>
+                    <th className="px-4 py-3 text-center" title="All uncompleted overdue tasks across unit">Curr. Overdue</th>
                     <th className="px-4 py-3 text-center">Pending Reviews</th>
                     <th className="px-4 py-3 text-center">Returned</th>
                     <th className="px-4 py-3 text-center">Recognized Init.</th>
@@ -892,7 +1017,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                             {u.activeUsersCount}
                           </td>
                           <td className="px-4 py-3 text-center font-semibold text-blue-700">
-                            {u.activeTasksCount}
+                            {u.allOpenTasksCount}
                           </td>
                           <td className="px-4 py-3 text-center font-bold text-emerald-700">
                             {u.completedTasksCount}
@@ -988,11 +1113,11 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 uppercase font-semibold border-b border-slate-200 text-[11px]">
                   <tr>
-                    <th className="px-4 py-3">Operating Region</th>
+                    <th className="px-4 py-3">Operating Region & Supervisors</th>
                     <th className="px-4 py-3 text-center">Current Staff</th>
-                    <th className="px-4 py-3 text-center">Active Tasks</th>
+                    <th className="px-4 py-3 text-center">Open Tasks</th>
                     <th className="px-4 py-3 text-center">Completed</th>
-                    <th className="px-4 py-3 text-center">Overdue</th>
+                    <th className="px-4 py-3 text-center">Curr. Overdue</th>
                     <th className="px-4 py-3 text-center">Pending Review</th>
                     <th className="px-4 py-3 text-center">Shift Logs</th>
                     <th className="px-4 py-3 text-center">Recognized Init.</th>
@@ -1025,6 +1150,11 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                                 <div className="font-bold text-slate-900">{r.region.name}</div>
                                 <div className="text-[10px] text-slate-500">
                                   {r.region.island_group} ({r.region.code})
+                                  {r.assignedSupervisors.length > 0 && (
+                                    <span className="ml-1.5 text-blue-700 font-medium">
+                                      • Sup: {r.assignedSupervisors.map((s) => s.name).join(', ')}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1033,7 +1163,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                             {r.assignedPersonnelCount}
                           </td>
                           <td className="px-4 py-3 text-center font-semibold text-blue-700">
-                            {r.activeTasksCount}
+                            {r.allOpenTasksCount}
                           </td>
                           <td className="px-4 py-3 text-center font-bold text-emerald-700">
                             {r.completedTasksCount}
@@ -1103,6 +1233,48 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                       </React.Fragment>
                     );
                   })}
+
+                  {/* Consolidated Island Group Rollups (Visayas R6+R7 & Mindanao R10+R11) */}
+                  {[consolidatedRollups.consolidatedVisayas, consolidatedRollups.consolidatedMindanao].map((cg) => (
+                    <tr key={cg.region.id} className="bg-blue-50/60 border-t-2 border-blue-200 font-semibold">
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-blue-950">{cg.region.name}</div>
+                        <div className="text-[10px] text-blue-700">
+                          Consolidated Rollup ({cg.region.code}) • Combined Numerators & Denominators
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-blue-950">
+                        {cg.assignedPersonnelCount}
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-blue-800">
+                        {cg.allOpenTasksCount}
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-emerald-800">
+                        {cg.completedTasksCount}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={`font-bold px-2 py-0.5 rounded-full ${
+                            cg.overdueTasksCount > 0
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {cg.overdueTasksCount}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-amber-900">
+                        {cg.pendingReviewsCount}
+                      </td>
+                      <td className="px-4 py-3 text-center text-blue-950">{cg.activitiesCount}</td>
+                      <td className="px-4 py-3 text-center font-bold text-indigo-800">
+                        {cg.recognizedInitiativesCount}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-blue-950 font-mono">
+                        {cg.onTimeRate.display}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1136,7 +1308,7 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
                   <div className="text-[10px] uppercase tracking-wider text-blue-300 font-bold">
                     Executive Oversight Layer
                   </div>
-                  <div className="font-bold text-sm">VP & Head of Security → Corporate Security Manager</div>
+                  <div className="font-bold text-sm">VP & Head of Security → Security Manager (Security Department)</div>
                 </div>
                 <ShieldCheck className="w-5 h-5 text-blue-400" />
               </div>
@@ -1307,6 +1479,164 @@ export const PersonnelDirectoryView: React.FC<PersonnelDirectoryViewProps> = ({
               >
                 + Add Region
               </button>
+            </form>
+
+            {/* Position-Specific KPI Weights & Targets Configuration */}
+            <form
+              onSubmit={handleSavePerformanceTarget}
+              className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2.5"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 flex items-center space-x-1.5">
+                  <Sliders className="w-4 h-4 text-blue-600" />
+                  <span>Position KPI Weights & Targets</span>
+                </h3>
+                <span className="text-[10px] text-slate-400">Non-Appraisal</span>
+              </div>
+
+              <select
+                value={selectedTargetId}
+                onChange={(e) => handleSelectTargetForEdit(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
+              >
+                {performanceTargets.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {getTargetLabel(t)}
+                  </option>
+                ))}
+              </select>
+
+              {targetDraft && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">Completion Wt %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={targetDraft.weight_completion ?? 35}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            weight_completion: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">On-Time SLA Wt %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={targetDraft.weight_on_time ?? 35}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            weight_on_time: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">Shift Logs Wt %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={targetDraft.weight_activity ?? 15}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            weight_activity: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">Initiatives Wt %</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={targetDraft.weight_initiative ?? 15}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            weight_initiative: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">On-Time Goal %</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={targetDraft.target_on_time_rate}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            target_on_time_rate: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                    <label className="space-y-0.5">
+                      <span className="text-slate-600 font-medium">Daily Logs / Day</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        step={1}
+                        value={targetDraft.daily_activity_target ?? 1}
+                        onChange={(e) =>
+                          setTargetDraft({
+                            ...targetDraft,
+                            daily_activity_target: Number(e.target.value),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-slate-300 rounded"
+                      />
+                    </label>
+                  </div>
+                  {(() => {
+                    const weightSum =
+                      (targetDraft.weight_completion ?? 0) +
+                      (targetDraft.weight_on_time ?? 0) +
+                      (targetDraft.weight_activity ?? 0) +
+                      (targetDraft.weight_initiative ?? 0);
+                    return (
+                      <div className="flex items-center justify-between text-[11px] pt-1">
+                        <span
+                          className={`font-semibold ${
+                            weightSum === 100 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          Total Weight: {weightSum}% {weightSum === 100 ? '✓' : '(Must = 100%)'}
+                        </span>
+                        <span className="text-slate-400">
+                          Init. Goal: {targetDraft.monthly_initiative_goal}/mo
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  <button
+                    type="submit"
+                    disabled={!orgTablesReady || savingTarget}
+                    className="w-full py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingTarget ? 'Saving Targets...' : 'Save KPI Weights & Targets'}
+                  </button>
+                </>
+              )}
             </form>
           </div>
         </div>

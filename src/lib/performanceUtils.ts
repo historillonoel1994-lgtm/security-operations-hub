@@ -1,27 +1,34 @@
 /**
  * Performance Calculation & Hierarchy Utilities for Security Operations Hub (SOH)
  *
- * Documented Calculation Rules:
+ * Documented Calculation & Reconciliation Rules:
  * 1. Timezone: All business dates and due-date comparisons use Asia/Manila (UTC+8).
- *    UTC timestamps in database records (completed_at, updated_at, recognized_at)
- *    are converted to Asia/Manila YYYY-MM-DD before evaluating timeliness.
- * 2. Task Completion Rate:
- *    Completed tasks / eligible assigned tasks in cohort. Displays "No Data" if denominator = 0.
- * 3. On-Time Completion Rate:
- *    Completed tasks where manilaDate(completed_at || updated_at) <= due_date / eligible completed tasks with due_date.
- *    Reopened tasks have completed_at = null and status != 'completed', so they are automatically excluded.
- * 4. Overdue Count:
- *    Open tasks (status != 'completed') where due_date < current Philippine date.
- * 5. Recognized Initiatives:
+ *    UTC timestamps (completed_at, updated_at, recognized_at) are converted to
+ *    Asia/Manila YYYY-MM-DD before evaluating timeliness.
+ * 2. Insufficient Data Standard:
+ *    Whenever a denominator <= 0 or no records exist for a metric, `computeKpiFraction`
+ *    returns `percentage: null` and `display: "N/A"`. Never fabricates 0% or 100%.
+ * 3. Task Completion Rate:
+ *    Completed tasks in cohort / total tasks in cohort.
+ * 4. On-Time Completion Rate:
+ *    Completed tasks with due_date where manilaDate(completed_at || updated_at) <= due_date
+ *    divided by completed tasks with due_date. Reopened tasks have completed_at = null
+ *    and status != 'completed', so they are automatically excluded.
+ * 5. Overdue Reconciliation (Zero-Discrepancy Rule):
+ *    - Currently Overdue Tasks: ALL open tasks (status != 'completed') with due_date < today (PHT),
+ *      regardless of reporting window. Used consistently across Executive Cards, Staff w/ Overdue,
+ *      Personnel Directory, Units, and Regions so totals always reconcile cleanly.
+ *    - Became Overdue During Period: Open overdue tasks whose due_date falls in [fromDate, toDate].
+ *    - Historical Overdue: Open overdue tasks whose due_date < fromDate.
+ *    - Completed Late in Period: Completed in [fromDate, toDate] after due_date.
+ * 6. Recognized Initiatives:
  *    Strictly initiatives with status === 'recognized' AND valid recognized_at timestamp.
- *    Approved proposals ('approved_to_proceed' / 'in_progress') are NEVER counted as recognized accomplishments.
- * 6. Returned Submissions:
- *    Counts distinct return events in task_updates (status_change === 'returned') and
- *    initiative_history (action === 'RETURN_FOR_REVISION') within the selected period.
- * 7. Historical Region Preservation:
+ * 7. Position-Specific Operational Weights (Non-Appraisal):
+ *    Uses configured `performance_targets` (matching position_id first, then unit_id, then defaults)
+ *    to compute a transparent, non-punitive Operational Index with full formula disclosure.
+ * 8. Historical Region Preservation:
  *    Regional performance aggregates tasks, activities, and initiatives by each record's own
  *    recorded `region` field rather than the user's current `personnel_assignments.region_id`.
- *    Reassigning a user to a new region never silently moves their historical work.
  */
 
 import {
@@ -35,15 +42,21 @@ import {
   OrganizationalPosition,
   OperatingRegion,
   PersonnelAssignment,
+  PerformanceTarget,
   DateRangePreset,
   KpiFraction,
+  KpiFormulaBreakdown,
+  OperationalIndexSummary,
   FunctionIndicator,
   PersonnelPerformanceRecord,
   UnitPerformanceSummary,
   RegionalPerformanceSummary,
 } from '../types/index.ts';
 import { getPhilippineToday, isTaskDueToday, isTaskOverdue } from './dateUtils.ts';
-import { resolveOperatingRegionId } from './orgDefaults.ts';
+import {
+  DEFAULT_PERFORMANCE_TARGETS,
+  resolveOperatingRegionId,
+} from './orgDefaults.ts';
 
 /**
  * Converts a UTC ISO timestamp (or YYYY-MM-DD) into an Asia/Manila YYYY-MM-DD date string.
@@ -81,7 +94,6 @@ export function getDateRangeForPreset(preset: DateRangePreset): {
 
   if (preset === 'week') {
     const d = new Date(baseDate);
-    // Start of current week (Monday) or last 7 days
     const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon
     const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     d.setDate(d.getDate() - diffToMon);
@@ -104,7 +116,6 @@ export function getDateRangeForPreset(preset: DateRangePreset): {
     return { fromDate: `${yyyy}-${qMonthStr}-01`, toDate: today };
   }
 
-  // Default fallback: last 30 days
   const d = new Date(baseDate);
   d.setDate(d.getDate() - 30);
   return {
@@ -114,7 +125,23 @@ export function getDateRangeForPreset(preset: DateRangePreset): {
 }
 
 /**
- * Builds a transparent fraction KPI showing numerator, denominator, and percentage or "No Data".
+ * Counts inclusive calendar/operating days between fromDate and toDate (capped sensibly at >= 1).
+ */
+export function countDaysInRange(fromDate?: string, toDate?: string): number {
+  if (!fromDate || !toDate) return 30;
+  try {
+    const start = new Date(`${fromDate}T00:00:00+08:00`);
+    const end = new Date(`${toDate}T00:00:00+08:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
+    const diffDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(1, diffDays);
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Builds a transparent fraction KPI showing numerator, denominator, and percentage or "N/A".
  */
 export function computeKpiFraction(numerator: number, denominator: number): KpiFraction {
   if (denominator <= 0) {
@@ -122,7 +149,7 @@ export function computeKpiFraction(numerator: number, denominator: number): KpiF
       numerator: 0,
       denominator: 0,
       percentage: null,
-      display: 'No Data',
+      display: 'N/A',
     };
   }
   const pct = Math.round((numerator / denominator) * 100);
@@ -177,9 +204,7 @@ export function isWithinDateWindow(
 
 /**
  * Checks whether a task belongs to the selected reporting cohort window:
- * Includes tasks whose due_date, created_at, or completed_at falls in [fromDate, toDate],
- * OR open overdue/active tasks if no strict window exclusion applies.
- * Using business-date cohort: due_date in [fromDate, toDate] OR completed_at in [fromDate, toDate].
+ * due_date in [fromDate, toDate], OR completed_at in [fromDate, toDate], OR created_at in [fromDate, toDate].
  */
 export function isTaskInReportingCohort(
   task: Task,
@@ -210,6 +235,35 @@ export function isCompletedOnTime(task: Task): boolean {
 }
 
 /**
+ * Checks if a completed task was closed late (completed_at > due_date in Asia/Manila).
+ */
+export function isCompletedLate(task: Task): boolean {
+  if (task.status !== 'completed' || !task.due_date) return false;
+  const completionDate = toPhilippineDateString(task.completed_at || task.updated_at);
+  if (!completionDate) return false;
+  return completionDate > task.due_date;
+}
+
+/**
+ * Resolves the applicable PerformanceTarget for a position or unit,
+ * merging database-configured targets with defaults.
+ */
+export function resolvePerformanceTarget(
+  positionId: string | null | undefined,
+  unitId: string | null | undefined,
+  configuredTargets: PerformanceTarget[] = []
+): PerformanceTarget {
+  const pool = [...configuredTargets, ...DEFAULT_PERFORMANCE_TARGETS];
+  const byPos = positionId ? pool.find((t) => t.position_id === positionId) : undefined;
+  if (byPos) return byPos;
+  const byUnit = unitId ? pool.find((t) => t.unit_id === unitId && !t.position_id) : undefined;
+  if (byUnit) return byUnit;
+  return (
+    DEFAULT_PERFORMANCE_TARGETS.find((t) => t.id === 'tgt-rso') || DEFAULT_PERFORMANCE_TARGETS[0]
+  );
+}
+
+/**
  * Build function-specific operational indicators tailored to the member's actual role/position.
  */
 function buildFunctionIndicators(
@@ -230,7 +284,7 @@ function buildFunctionIndicators(
     return [
       {
         label: 'Investigation Follow-Ups',
-        value: investigations.length > 0 ? `${closedInv}/${investigations.length} Closed` : 'No Data',
+        value: investigations.length > 0 ? `${closedInv}/${investigations.length} Closed` : 'N/A',
         detail: 'Assigned investigation follow-up tasks completed',
       },
       {
@@ -255,7 +309,7 @@ function buildFunctionIndicators(
     return [
       {
         label: 'CCTV / Access Audits',
-        value: cctvTasks.length > 0 ? `${closedCctv}/${cctvTasks.length} Resolved` : 'No Data',
+        value: cctvTasks.length > 0 ? `${closedCctv}/${cctvTasks.length} Resolved` : 'N/A',
         detail: 'Camera & door access control assignments',
       },
       {
@@ -279,7 +333,7 @@ function buildFunctionIndicators(
     return [
       {
         label: 'Management Reports Closed',
-        value: reportTasks.length > 0 ? `${closedRep}/${reportTasks.length}` : 'No Data',
+        value: reportTasks.length > 0 ? `${closedRep}/${reportTasks.length}` : 'N/A',
         detail: 'Incident & compliance report assignments closed',
       },
       {
@@ -301,7 +355,7 @@ function buildFunctionIndicators(
   return [
     {
       label: 'Site Inspections Completed',
-      value: inspections.length > 0 ? `${closedInsp}/${inspections.length}` : 'No Data',
+      value: inspections.length > 0 ? `${closedInsp}/${inspections.length}` : 'N/A',
       detail: 'Scheduled facility & physical security inspections',
     },
     {
@@ -333,6 +387,7 @@ export function computePersonnelPerformance(params: {
   activities: SecurityActivity[];
   initiatives: MemberInitiative[];
   initiativeHistory: Record<string, InitiativeHistory[]>;
+  performanceTargets?: PerformanceTarget[];
   fromDate?: string;
   toDate?: string;
 }): PersonnelPerformanceRecord {
@@ -349,6 +404,7 @@ export function computePersonnelPerformance(params: {
     activities,
     initiatives,
     initiativeHistory,
+    performanceTargets = [],
     fromDate,
     toDate,
   } = params;
@@ -390,7 +446,7 @@ export function computePersonnelPerformance(params: {
     }
   }
 
-  // Deduplicated personal tasks within reporting cohort
+  // Personal tasks (ALL vs selected cohort)
   const userTasksAll = tasks.filter((t) => t.assigned_to === user.id);
   const cohortTasks = userTasksAll.filter((t) => isTaskInReportingCohort(t, fromDate, toDate));
 
@@ -412,17 +468,32 @@ export function computePersonnelPerformance(params: {
       isWithinDateWindow(i.recognized_at, fromDate, toDate)
   );
 
-  // Task KPI counts
+  // Task KPI counts (Cohort)
   const completedTasks = cohortTasks.filter((t) => t.status === 'completed');
   const completedWithDue = completedTasks.filter((t) => Boolean(t.due_date));
   const onTimeCompleted = completedWithDue.filter((t) => isCompletedOnTime(t));
+  const completedLateInPeriodCount = completedWithDue.filter((t) => isCompletedLate(t)).length;
 
-  // Open status counts (active & overdue always reflect real open workload, filtered if cohort applies)
-  const activeTasks = cohortTasks.filter((t) => t.status !== 'completed');
-  const dueTodayCount = activeTasks.filter((t) => isTaskDueToday(t.due_date, t.status)).length;
-  const overdueTasksCount = activeTasks.filter((t) => isTaskOverdue(t.due_date, t.status)).length;
-  const forReviewCount = activeTasks.filter((t) => t.status === 'for_review').length;
-  const returnedTasksCount = activeTasks.filter((t) => t.status === 'returned').length;
+  // Open status counts:
+  // - Cohort active workload
+  const cohortActiveTasks = cohortTasks.filter((t) => t.status !== 'completed');
+  // - ALL open tasks & ALL Currently Overdue Tasks (reconciles 100% with Executive Overdue KPI)
+  const allOpenTasks = userTasksAll.filter((t) => t.status !== 'completed');
+  const currentOverdueTasks = allOpenTasks.filter((t) => isTaskOverdue(t.due_date, t.status));
+
+  const becameOverdueInPeriodCount =
+    fromDate && toDate
+      ? currentOverdueTasks.filter((t) => t.due_date >= fromDate && t.due_date <= toDate).length
+      : currentOverdueTasks.length;
+
+  const historicalOverdueCount =
+    fromDate
+      ? currentOverdueTasks.filter((t) => t.due_date < fromDate).length
+      : 0;
+
+  const dueTodayCount = allOpenTasks.filter((t) => isTaskDueToday(t.due_date, t.status)).length;
+  const forReviewCount = allOpenTasks.filter((t) => t.status === 'for_review').length;
+  const returnedTasksCount = allOpenTasks.filter((t) => t.status === 'returned').length;
 
   // Return events during period (from task_updates + initiative_history)
   let returnedEvents = 0;
@@ -455,6 +526,110 @@ export function computePersonnelPerformance(params: {
   const completionRate = computeKpiFraction(completedTasks.length, cohortTasks.length);
   const onTimeRate = computeKpiFraction(onTimeCompleted.length, completedWithDue.length);
 
+  // Position-Specific Targets & Daily Activity Compliance
+  const appliedTarget = resolvePerformanceTarget(position?.id, unit?.id, performanceTargets);
+  const daysInWindow = countDaysInRange(fromDate, toDate);
+  const dailyTarget = appliedTarget.daily_activity_target ?? 1;
+  // Use expected daily activity benchmark only if user is approved & active (otherwise N/A)
+  const expectedActivities =
+    user.approved && user.active && dailyTarget > 0 ? daysInWindow * dailyTarget : 0;
+  const cappedActivityHits =
+    expectedActivities > 0 ? Math.min(cohortActivities.length, expectedActivities) : 0;
+  const dailyActivityRate =
+    userActivitiesAll.length === 0 && cohortTasks.length === 0 && userInitiativesAll.length === 0
+      ? computeKpiFraction(0, 0) // New user with zero history shows N/A rather than 0%
+      : computeKpiFraction(cappedActivityHits, expectedActivities);
+
+  const initiativeGoal = Math.max(1, appliedTarget.monthly_initiative_goal || 1);
+  const initiativeRate =
+    userInitiativesAll.length === 0 && cohortTasks.length === 0 && userActivitiesAll.length === 0
+      ? computeKpiFraction(0, 0)
+      : computeKpiFraction(
+          Math.min(recognizedInitiatives.length, initiativeGoal),
+          initiativeGoal
+        );
+
+  // Position-Weighted Operational Index (Strictly Non-Appraisal; N/A when no eligible indicators exist)
+  const wComp = appliedTarget.weight_completion ?? 35;
+  const wOnTime = appliedTarget.weight_on_time ?? 35;
+  const wAct = appliedTarget.weight_activity ?? 15;
+  const wInit = appliedTarget.weight_initiative ?? 15;
+
+  const weightedComponents: { pct: number; weight: number }[] = [];
+  if (completionRate.percentage !== null) {
+    weightedComponents.push({ pct: completionRate.percentage, weight: wComp });
+  }
+  if (onTimeRate.percentage !== null) {
+    weightedComponents.push({ pct: onTimeRate.percentage, weight: wOnTime });
+  }
+  if (dailyActivityRate.percentage !== null && cohortActivities.length > 0) {
+    weightedComponents.push({ pct: dailyActivityRate.percentage, weight: wAct });
+  }
+  if (initiativeRate.percentage !== null && recognizedInitiatives.length > 0) {
+    weightedComponents.push({ pct: initiativeRate.percentage, weight: wInit });
+  }
+
+  const totalEligibleWeight = weightedComponents.reduce((s, c) => s + c.weight, 0);
+  const weightedScore =
+    totalEligibleWeight > 0
+      ? Math.round(
+          weightedComponents.reduce((s, c) => s + c.pct * c.weight, 0) / totalEligibleWeight
+        )
+      : null;
+
+  const operationalIndex: OperationalIndexSummary = {
+    score: weightedScore,
+    display: weightedScore !== null ? `${weightedScore}%` : 'N/A',
+    label: 'Operational Index (Non-Appraisal)',
+    isNonAppraisal: true,
+    formulaDescription: `Position weights (${position?.title || 'Standard'}): Completion ${wComp}% + On-Time ${wOnTime}% + Shift Logs ${wAct}% + Initiatives ${wInit}% (normalized across active denominators)`,
+  };
+
+  const kpiBreakdowns: KpiFormulaBreakdown[] = [
+    {
+      metric: 'Task Completion Rate',
+      formula: 'Completed tasks in cohort ÷ Total assigned tasks in cohort',
+      numerator: completionRate.numerator,
+      denominator: completionRate.denominator,
+      weightPercent: wComp,
+      valueDisplay: completionRate.display,
+      sourceRecordSet: 'public.tasks (cohort by due/created/completed date)',
+    },
+    {
+      metric: 'On-Time Completion SLA',
+      formula: 'Completed on or before due_date (PHT) ÷ Completed tasks with due_date',
+      numerator: onTimeRate.numerator,
+      denominator: onTimeRate.denominator,
+      weightPercent: wOnTime,
+      valueDisplay: onTimeRate.display,
+      sourceRecordSet: 'public.tasks (status = completed, PHT comparison)',
+    },
+    {
+      metric: 'Daily Activity Log Coverage',
+      formula: `Logged activities (${cohortActivities.length}) ÷ (${daysInWindow}d × ${dailyTarget}/day target)`,
+      numerator: dailyActivityRate.numerator,
+      denominator: dailyActivityRate.denominator,
+      weightPercent: wAct,
+      valueDisplay: dailyActivityRate.display,
+      sourceRecordSet: 'public.activities (activity_date in window)',
+    },
+    {
+      metric: 'Recognized Proactive Initiatives',
+      formula: 'Manager-recognized initiatives (status = recognized) ÷ Monthly benchmark',
+      numerator: recognizedInitiatives.length,
+      denominator: initiativeGoal,
+      weightPercent: wInit,
+      valueDisplay:
+        recognizedInitiatives.length > 0 || userInitiativesAll.length > 0
+          ? `${recognizedInitiatives.length}/${initiativeGoal} (${Math.min(
+              100,
+              Math.round((recognizedInitiatives.length / initiativeGoal) * 100)
+            )}%)`
+          : 'N/A',
+      sourceRecordSet: 'public.member_initiatives (recognized_at in window)',
+    },
+  ];
+
   const hasAnyHistory =
     userTasksAll.length > 0 || userActivitiesAll.length > 0 || userInitiativesAll.length > 0;
 
@@ -476,15 +651,21 @@ export function computePersonnelPerformance(params: {
     region,
     supervisor,
     totalAssignedTasks: cohortTasks.length,
-    activeTasksCount: activeTasks.length,
+    activeTasksCount: cohortActiveTasks.length,
+    allOpenTasksCount: allOpenTasks.length,
     dueTodayCount,
-    overdueTasksCount,
+    overdueTasksCount: currentOverdueTasks.length,
+    becameOverdueInPeriodCount,
+    historicalOverdueCount,
+    completedLateInPeriodCount,
     forReviewCount,
     returnedTasksCount,
     completedTasksCount: completedTasks.length,
+    completedWithDueCount: completedWithDue.length,
     onTimeCompletedCount: onTimeCompleted.length,
     completionRate,
     onTimeRate,
+    dailyActivityRate,
     activitiesCount: cohortActivities.length,
     totalInitiativesCount: cohortInitiatives.length,
     pendingInitiativesCount: userInitiativesAll.filter(
@@ -497,11 +678,16 @@ export function computePersonnelPerformance(params: {
     lastRecordedActivityTitle: latestAct ? latestAct.title : null,
     hasAnyHistory,
     functionIndicators,
+    appliedTarget,
+    operationalIndex,
+    kpiBreakdowns,
   };
 }
 
 /**
  * Computes unit-level performance summary across organizational units using actual Supabase assignments.
+ * Guarantees exact reconciliation by grouping unassigned-unit users separately if any exist,
+ * and using `completedWithDueCount` as the exact denominator for `onTimeRate`.
  */
 export function computeUnitPerformanceSummaries(params: {
   units: OrganizationalUnit[];
@@ -509,62 +695,102 @@ export function computeUnitPerformanceSummaries(params: {
 }): UnitPerformanceSummary[] {
   const { units, personnelRecords } = params;
 
-  return units
-    .filter((u) => u.is_active)
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((unit) => {
-      const members = personnelRecords.filter((rec) => {
-        if (rec.unit?.id === unit.id) return true;
-        // Fallback if user has no explicit personnel_assignment yet:
-        // managers belong to unit-exec, unassigned members are counted separately or under RSO?
-        // To avoid misleading assumptions, only match explicit unit assignment or manager->EXEC!
-        if (!rec.assignment && rec.user.role === 'manager' && unit.id === 'unit-exec') {
-          return true;
-        }
-        return false;
-      });
+  const activeUnits = units.filter((u) => u.is_active).sort((a, b) => a.sort_order - b.sort_order);
+  const assignedIds = new Set<string>();
 
-      const activeUsersCount = members.filter((m) => m.user.approved && m.user.active).length;
-      const activeTasksCount = members.reduce((s, m) => s + m.activeTasksCount, 0);
-      const completedTasksCount = members.reduce((s, m) => s + m.completedTasksCount, 0);
-      const totalAssigned = members.reduce((s, m) => s + m.totalAssignedTasks, 0);
-      const onTimeCompleted = members.reduce((s, m) => s + m.onTimeCompletedCount, 0);
-      const overdueTasksCount = members.reduce((s, m) => s + m.overdueTasksCount, 0);
-      const pendingReviewsCount = members.reduce(
-        (s, m) => s + m.forReviewCount + m.pendingInitiativesCount,
-        0
-      );
-      const returnedSubmissionsCount = members.reduce(
-        (s, m) => s + m.returnedSubmissionsEvents,
-        0
-      );
-      const recognizedInitiativesCount = members.reduce(
-        (s, m) => s + m.recognizedInitiativesCount,
-        0
-      );
-      const activitiesCount = members.reduce((s, m) => s + m.activitiesCount, 0);
+  const buildUnitSummary = (
+    unit: OrganizationalUnit,
+    members: PersonnelPerformanceRecord[]
+  ): UnitPerformanceSummary => {
+    const activeUsersCount = members.filter((m) => m.user.approved && m.user.active).length;
+    const activeTasksCount = members.reduce((s, m) => s + m.activeTasksCount, 0);
+    const allOpenTasksCount = members.reduce((s, m) => s + m.allOpenTasksCount, 0);
+    const completedTasksCount = members.reduce((s, m) => s + m.completedTasksCount, 0);
+    const completedWithDueCount = members.reduce((s, m) => s + m.completedWithDueCount, 0);
+    const totalAssignedTasks = members.reduce((s, m) => s + m.totalAssignedTasks, 0);
+    const onTimeCompletedCount = members.reduce((s, m) => s + m.onTimeCompletedCount, 0);
+    const overdueTasksCount = members.reduce((s, m) => s + m.overdueTasksCount, 0);
+    const becameOverdueInPeriodCount = members.reduce(
+      (s, m) => s + m.becameOverdueInPeriodCount,
+      0
+    );
+    const completedLateInPeriodCount = members.reduce(
+      (s, m) => s + m.completedLateInPeriodCount,
+      0
+    );
+    const pendingReviewsCount = members.reduce(
+      (s, m) => s + m.forReviewCount + m.pendingInitiativesCount,
+      0
+    );
+    const returnedSubmissionsCount = members.reduce(
+      (s, m) => s + m.returnedSubmissionsEvents,
+      0
+    );
+    const recognizedInitiativesCount = members.reduce(
+      (s, m) => s + m.recognizedInitiativesCount,
+      0
+    );
+    const activitiesCount = members.reduce((s, m) => s + m.activitiesCount, 0);
 
-      return {
-        unit,
-        activeUsersCount,
-        activeTasksCount,
-        completedTasksCount,
-        overdueTasksCount,
-        pendingReviewsCount,
-        returnedSubmissionsCount,
-        recognizedInitiativesCount,
-        completionRate: computeKpiFraction(completedTasksCount, totalAssigned),
-        onTimeRate: computeKpiFraction(onTimeCompleted, completedTasksCount),
-        activitiesCount,
-        memberIds: members.map((m) => m.user.id),
-      };
+    return {
+      unit,
+      activeUsersCount,
+      activeTasksCount,
+      allOpenTasksCount,
+      totalAssignedTasks,
+      completedTasksCount,
+      completedWithDueCount,
+      onTimeCompletedCount,
+      overdueTasksCount,
+      becameOverdueInPeriodCount,
+      completedLateInPeriodCount,
+      pendingReviewsCount,
+      returnedSubmissionsCount,
+      recognizedInitiativesCount,
+      completionRate: computeKpiFraction(completedTasksCount, totalAssignedTasks),
+      onTimeRate: computeKpiFraction(onTimeCompletedCount, completedWithDueCount),
+      activitiesCount,
+      memberIds: members.map((m) => m.user.id),
+    };
+  };
+
+  const results = activeUnits.map((unit) => {
+    const members = personnelRecords.filter((rec) => {
+      if (rec.unit?.id === unit.id) return true;
+      if (!rec.assignment && rec.user.role === 'manager' && unit.id === 'unit-exec') {
+        return true;
+      }
+      return false;
     });
+    for (const m of members) assignedIds.add(m.user.id);
+    return buildUnitSummary(unit, members);
+  });
+
+  // Ensure any member without an assigned org unit yet is still accounted for so unit sums === department totals
+  const unassignedMembers = personnelRecords.filter((rec) => !assignedIds.has(rec.user.id));
+  if (unassignedMembers.length > 0) {
+    results.push(
+      buildUnitSummary(
+        {
+          id: 'unit-unassigned',
+          code: 'UNASSIGNED',
+          name: 'Unassigned / Pending Unit Placement',
+          description: 'Registered personnel whose Organizational Unit has not yet been set by Manager',
+          parent_unit_id: null,
+          sort_order: 99,
+          is_active: true,
+        },
+        unassignedMembers
+      )
+    );
+  }
+
+  return results;
 }
 
 /**
- * Computes Regional Performance Summaries while PRESERVING HISTORICAL REGION ATTRIBUTION.
- * Tasks, activities, and initiatives are grouped by the region saved ON THOSE RECORDS,
- * NOT by the user's current `personnel_assignments.region_id`.
+ * Computes Regional Performance Summaries while PRESERVING HISTORICAL REGION ATTRIBUTION
+ * and guaranteeing exact reconciliation for Currently Overdue Tasks across all regions.
  */
 export function computeRegionalPerformanceSummaries(params: {
   regions: OperatingRegion[];
@@ -598,71 +824,324 @@ export function computeRegionalPerformanceSummaries(params: {
       isWithinDateWindow(i.recognized_at, fromDate, toDate)
   );
 
-  return regions
-    .filter((r) => r.is_active)
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((region) => {
-      // Currently assigned active personnel in this region
-      const assignedPersonnelCount = personnelRecords.filter(
-        (p) => p.user.approved && p.user.active && p.region?.id === region.id
-      ).length;
+  // Evaluate every region (including legacy reg-vis / reg-min only if they hold actual records)
+  const orderedRegions = [...regions].sort((a, b) => a.sort_order - b.sort_order);
 
-      // Historical & current tasks whose recorded task.region belongs to this operating region
-      const regionTasks = cohortTasks.filter(
-        (t) => resolveOperatingRegionId(t.region, regions) === region.id
-      );
-      const activeTasks = regionTasks.filter((t) => t.status !== 'completed');
-      const completedTasks = regionTasks.filter((t) => t.status === 'completed');
-      const completedWithDue = completedTasks.filter((t) => Boolean(t.due_date));
-      const onTimeCompleted = completedWithDue.filter((t) => isCompletedOnTime(t));
-      const overdueTasksCount = activeTasks.filter((t) =>
-        isTaskOverdue(t.due_date, t.status)
-      ).length;
-      const pendingReviewsCount = activeTasks.filter((t) => t.status === 'for_review').length;
+  const computed = orderedRegions.map((region) => {
+    const assignedMembers = personnelRecords.filter(
+      (p) => p.user.approved && p.user.active && p.region?.id === region.id
+    );
+    const assignedPersonnelCount = assignedMembers.length;
 
-      // Return events on tasks belonging to this region
-      let returnedSubmissionsCount = 0;
-      for (const t of tasks) {
-        if (resolveOperatingRegionId(t.region, regions) === region.id) {
-          const upds = taskUpdates[t.id] || [];
-          for (const u of upds) {
-            if (
-              u.status_change === 'returned' &&
-              isWithinDateWindow(u.created_at, fromDate, toDate)
-            ) {
-              returnedSubmissionsCount += 1;
-            }
-          }
+    const assignedSupervisors = assignedMembers
+      .filter(
+        (m) =>
+          m.position?.is_supervisory === true ||
+          m.assignment?.employment_category === 'supervisor' ||
+          m.position?.id === 'pos-rso-sup'
+      )
+      .map((m) => ({
+        id: m.user.id,
+        name: m.user.display_name,
+        positionTitle: m.position?.title || 'Regional Supervisor',
+      }));
+
+    // ALL tasks whose recorded task.region resolves to this operating region
+    const allRegionTasks = tasks.filter(
+      (t) => resolveOperatingRegionId(t.region, regions) === region.id
+    );
+    const allOpenRegionTasks = allRegionTasks.filter((t) => t.status !== 'completed');
+    const currentOverdueTasks = allOpenRegionTasks.filter((t) =>
+      isTaskOverdue(t.due_date, t.status)
+    );
+    const becameOverdueInPeriodCount =
+      fromDate && toDate
+        ? currentOverdueTasks.filter((t) => t.due_date >= fromDate && t.due_date <= toDate).length
+        : currentOverdueTasks.length;
+
+    // Cohort tasks in region
+    const regionCohortTasks = cohortTasks.filter(
+      (t) => resolveOperatingRegionId(t.region, regions) === region.id
+    );
+    const activeTasks = regionCohortTasks.filter((t) => t.status !== 'completed');
+    const completedTasks = regionCohortTasks.filter((t) => t.status === 'completed');
+    const completedWithDue = completedTasks.filter((t) => Boolean(t.due_date));
+    const onTimeCompleted = completedWithDue.filter((t) => isCompletedOnTime(t));
+    const completedLateInPeriodCount = completedWithDue.filter((t) => isCompletedLate(t)).length;
+
+    const pendingReviewsCount = allOpenRegionTasks.filter((t) => t.status === 'for_review').length;
+
+    // Return events on tasks belonging to this region
+    let returnedSubmissionsCount = 0;
+    for (const t of allRegionTasks) {
+      const upds = taskUpdates[t.id] || [];
+      for (const u of upds) {
+        if (
+          u.status_change === 'returned' &&
+          isWithinDateWindow(u.created_at, fromDate, toDate)
+        ) {
+          returnedSubmissionsCount += 1;
         }
       }
+    }
 
-      const regionActivities = cohortActivities.filter(
-        (a) => resolveOperatingRegionId(a.region, regions) === region.id
-      );
+    const regionAllActivities = activities.filter(
+      (a) => resolveOperatingRegionId(a.region, regions) === region.id
+    );
+    const regionCohortActivities = cohortActivities.filter(
+      (a) => resolveOperatingRegionId(a.region, regions) === region.id
+    );
+    const sortedRegionActs = [...regionAllActivities].sort((a, b) =>
+      (b.activity_date || b.created_at).localeCompare(a.activity_date || a.created_at)
+    );
+    const latestActivityDate = sortedRegionActs[0]?.activity_date || null;
 
-      const regionInitiatives = recognizedInits.filter(
-        (i) => resolveOperatingRegionId(i.region, regions) === region.id
-      );
+    const regionInitiatives = recognizedInits.filter(
+      (i) => resolveOperatingRegionId(i.region, regions) === region.id
+    );
 
-      return {
-        region,
-        assignedPersonnelCount,
-        activeTasksCount: activeTasks.length,
-        completedTasksCount: completedTasks.length,
-        overdueTasksCount,
-        pendingReviewsCount,
-        returnedSubmissionsCount,
-        recognizedInitiativesCount: regionInitiatives.length,
-        completionRate: computeKpiFraction(completedTasks.length, regionTasks.length),
-        onTimeRate: computeKpiFraction(onTimeCompleted.length, completedWithDue.length),
-        activitiesCount: regionActivities.length,
-      };
-    });
+    return {
+      region,
+      assignedPersonnelCount,
+      assignedSupervisors,
+      activeTasksCount: activeTasks.length,
+      allOpenTasksCount: allOpenRegionTasks.length,
+      totalCohortTasks: regionCohortTasks.length,
+      completedTasksCount: completedTasks.length,
+      completedWithDueCount: completedWithDue.length,
+      onTimeCompletedCount: onTimeCompleted.length,
+      overdueTasksCount: currentOverdueTasks.length,
+      becameOverdueInPeriodCount,
+      completedLateInPeriodCount,
+      pendingReviewsCount,
+      returnedSubmissionsCount,
+      recognizedInitiativesCount: regionInitiatives.length,
+      completionRate: computeKpiFraction(completedTasks.length, regionCohortTasks.length),
+      onTimeRate: computeKpiFraction(onTimeCompleted.length, completedWithDue.length),
+      activitiesCount: regionCohortActivities.length,
+      latestActivityDate,
+    } satisfies RegionalPerformanceSummary;
+  });
+
+  // Include active regions OR any legacy inactive region that holds historical/open records
+  return computed.filter(
+    (item) =>
+      item.region.is_active ||
+      item.assignedPersonnelCount > 0 ||
+      item.allOpenTasksCount > 0 ||
+      item.totalCohortTasks > 0 ||
+      item.activitiesCount > 0 ||
+      item.recognizedInitiativesCount > 0
+  );
 }
 
 /**
- * Generates last 4 weeks / months trend buckets from real tasks, activities, and recognized initiatives
- * using Asia/Manila dates.
+ * Computes Consolidated Visayas (Region 6 + Region 7 + legacy reg-vis) and
+ * Consolidated Mindanao (Region 10 + Region 11 + legacy reg-min) rollups
+ * using summed numerators & denominators (never averaging percentages).
+ */
+export function computeConsolidatedRegionRollups(
+  regionalSummaries: RegionalPerformanceSummary[]
+): {
+  consolidatedVisayas: RegionalPerformanceSummary;
+  consolidatedMindanao: RegionalPerformanceSummary;
+} {
+  const aggregateGroup = (
+    id: string,
+    code: string,
+    name: string,
+    islandGroup: string,
+    childIds: string[]
+  ): RegionalPerformanceSummary => {
+    const children = regionalSummaries.filter((r) => childIds.includes(r.region.id));
+    const assignedPersonnelCount = children.reduce((s, r) => s + r.assignedPersonnelCount, 0);
+    const activeTasksCount = children.reduce((s, r) => s + r.activeTasksCount, 0);
+    const allOpenTasksCount = children.reduce((s, r) => s + r.allOpenTasksCount, 0);
+    const totalCohortTasks = children.reduce((s, r) => s + r.totalCohortTasks, 0);
+    const completedTasksCount = children.reduce((s, r) => s + r.completedTasksCount, 0);
+    const completedWithDueCount = children.reduce((s, r) => s + r.completedWithDueCount, 0);
+    const onTimeCompletedCount = children.reduce((s, r) => s + r.onTimeCompletedCount, 0);
+    const overdueTasksCount = children.reduce((s, r) => s + r.overdueTasksCount, 0);
+    const becameOverdueInPeriodCount = children.reduce(
+      (s, r) => s + r.becameOverdueInPeriodCount,
+      0
+    );
+    const completedLateInPeriodCount = children.reduce(
+      (s, r) => s + r.completedLateInPeriodCount,
+      0
+    );
+    const pendingReviewsCount = children.reduce((s, r) => s + r.pendingReviewsCount, 0);
+    const returnedSubmissionsCount = children.reduce((s, r) => s + r.returnedSubmissionsCount, 0);
+    const recognizedInitiativesCount = children.reduce(
+      (s, r) => s + r.recognizedInitiativesCount,
+      0
+    );
+    const activitiesCount = children.reduce((s, r) => s + r.activitiesCount, 0);
+
+    const supervisorsMap: Record<string, { id: string; name: string; positionTitle: string }> = {};
+    for (const c of children) {
+      for (const sup of c.assignedSupervisors) {
+        supervisorsMap[sup.id] = sup;
+      }
+    }
+
+    const latestDates = children
+      .map((c) => c.latestActivityDate)
+      .filter((d): d is string => Boolean(d))
+      .sort((a, b) => b.localeCompare(a));
+
+    return {
+      region: {
+        id,
+        code,
+        name,
+        island_group: islandGroup,
+        sort_order: 99,
+        is_active: true,
+      },
+      assignedPersonnelCount,
+      assignedSupervisors: Object.values(supervisorsMap),
+      activeTasksCount,
+      allOpenTasksCount,
+      totalCohortTasks,
+      completedTasksCount,
+      completedWithDueCount,
+      onTimeCompletedCount,
+      overdueTasksCount,
+      becameOverdueInPeriodCount,
+      completedLateInPeriodCount,
+      pendingReviewsCount,
+      returnedSubmissionsCount,
+      recognizedInitiativesCount,
+      completionRate: computeKpiFraction(completedTasksCount, totalCohortTasks),
+      onTimeRate: computeKpiFraction(onTimeCompletedCount, completedWithDueCount),
+      activitiesCount,
+      latestActivityDate: latestDates[0] || null,
+      isConsolidatedGroup: true,
+      childRegionIds: childIds,
+    };
+  };
+
+  return {
+    consolidatedVisayas: aggregateGroup(
+      'consolidated-visayas',
+      'VIS-ALL',
+      'Consolidated Visayas (R6 + R7)',
+      'Visayas',
+      ['reg-vis-6', 'reg-vis-7', 'reg-vis']
+    ),
+    consolidatedMindanao: aggregateGroup(
+      'consolidated-mindanao',
+      'MIN-ALL',
+      'Consolidated Mindanao (R10 + R11)',
+      'Mindanao',
+      ['reg-min-10', 'reg-min-11', 'reg-min']
+    ),
+  };
+}
+
+/**
+ * Canonical Department Reconciled Metrics for Executive Overview Cards & Management Action Center.
+ * Guarantees 100% numeric consistency across Overview Cards, Overdue breakdown, Personnel, Units, & Regions.
+ */
+export function computeDepartmentReconciledMetrics(params: {
+  allProfiles: UserProfile[];
+  allDepartmentTasks: Task[];
+  allDepartmentInitiatives: MemberInitiative[];
+  fromDate: string;
+  toDate: string;
+}) {
+  const {
+    allProfiles,
+    allDepartmentTasks,
+    allDepartmentInitiatives,
+    fromDate,
+    toDate,
+  } = params;
+
+  const approvedActiveUsers = allProfiles.filter((p) => p.approved && p.active);
+  const pendingApprovalProfiles = allProfiles.filter((p) => !p.approved);
+
+  // ALL open tasks across department regardless of period
+  const allOpenTasks = allDepartmentTasks.filter((t) => t.status !== 'completed');
+  const allCurrentlyOverdueTasks = allOpenTasks.filter((t) =>
+    isTaskOverdue(t.due_date, t.status)
+  );
+  const becameOverdueInPeriodTasks = allCurrentlyOverdueTasks.filter(
+    (t) => t.due_date >= fromDate && t.due_date <= toDate
+  );
+  const historicalOverdueTasks = allCurrentlyOverdueTasks.filter((t) => t.due_date < fromDate);
+  const allDueTodayTasks = allOpenTasks.filter((t) => isTaskDueToday(t.due_date, t.status));
+  const allForReviewTasks = allOpenTasks.filter((t) => t.status === 'for_review');
+  const allReturnedTasks = allOpenTasks.filter((t) => t.status === 'returned');
+
+  // Cohort-bounded task metrics
+  const cohortTasks = allDepartmentTasks.filter((t) =>
+    isTaskInReportingCohort(t, fromDate, toDate)
+  );
+  const cohortActiveTasks = cohortTasks.filter((t) => t.status !== 'completed');
+  const cohortCompletedTasks = cohortTasks.filter((t) => t.status === 'completed');
+  const completedWithDue = cohortCompletedTasks.filter((t) => Boolean(t.due_date));
+  const onTimeCompleted = completedWithDue.filter((t) => isCompletedOnTime(t));
+  const completedLateInPeriod = completedWithDue.filter((t) => isCompletedLate(t));
+
+  // Initiatives
+  const pendingInitiatives = allDepartmentInitiatives.filter(
+    (i) => i.status === 'pending_review' || i.status === 'accomplishment_submitted'
+  );
+  const returnedInitiatives = allDepartmentInitiatives.filter((i) => i.status === 'returned');
+  const recognizedInitiatives = allDepartmentInitiatives.filter(
+    (i) =>
+      i.status === 'recognized' &&
+      Boolean(i.recognized_at) &&
+      isWithinDateWindow(i.recognized_at, fromDate, toDate)
+  );
+
+  // Personnel workload states (evaluated across ALL open tasks so Staff w/ Overdue reconciles 100%)
+  const personnelWithoutAssignmentsList = approvedActiveUsers.filter(
+    (u) => !allOpenTasks.some((t) => t.assigned_to === u.id)
+  );
+  const personnelWithOverdueList = approvedActiveUsers.filter((u) =>
+    allCurrentlyOverdueTasks.some((t) => t.assigned_to === u.id)
+  );
+
+  return {
+    totalRegisteredPersonnel: allProfiles.length,
+    activeApprovedPersonnel: approvedActiveUsers.length,
+    pendingApprovals: pendingApprovalProfiles.length,
+    pendingApprovalProfiles,
+    // Reconciled open/overdue workload
+    allOpenTasksCount: allOpenTasks.length,
+    overdue: allCurrentlyOverdueTasks.length, // Currently Overdue Tasks (canonical)
+    allCurrentlyOverdueTasks,
+    becameOverdueInPeriodCount: becameOverdueInPeriodTasks.length,
+    historicalOverdueCount: historicalOverdueTasks.length,
+    completedLateInPeriodCount: completedLateInPeriod.length,
+    dueToday: allDueTodayTasks.length,
+    forReview: allForReviewTasks.length,
+    allForReviewTasks,
+    allReturnedTasks,
+    // Cohort KPIs
+    totalActiveTasks: cohortActiveTasks.length,
+    completed: cohortCompletedTasks.length,
+    completionRate: computeKpiFraction(cohortCompletedTasks.length, cohortTasks.length),
+    onTimeRate: computeKpiFraction(onTimeCompleted.length, completedWithDue.length),
+    // Initiatives & Approvals
+    recognizedInitiatives: recognizedInitiatives.length,
+    pendingInitiativesCount: pendingInitiatives.length,
+    pendingInitiatives,
+    returnedInitiatives,
+    returnedForRevision: allReturnedTasks.length + returnedInitiatives.length,
+    totalPendingManagementApprovals:
+      pendingApprovalProfiles.length + allForReviewTasks.length + pendingInitiatives.length,
+    // Personnel status lists
+    personnelWithoutAssignmentsList,
+    personnelWithOverdueList,
+  };
+}
+
+/**
+ * Generates last N months trend buckets from real tasks and recognized initiatives using Asia/Manila dates.
  */
 export function computeMonthlyTrendBuckets(params: {
   tasks: Task[];
@@ -673,7 +1152,7 @@ export function computeMonthlyTrendBuckets(params: {
   const today = getPhilippineToday();
   const [curYearStr, curMonthStr] = today.split('-');
   const curYear = parseInt(curYearStr, 10);
-  const curMonth = parseInt(curMonthStr, 10); // 1..12
+  const curMonth = parseInt(curMonthStr, 10);
 
   const buckets: {
     monthKey: string;

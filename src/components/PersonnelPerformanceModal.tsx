@@ -78,6 +78,8 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
     operatingRegions,
     assignmentsByUserId,
     reportingHistory,
+    performanceTargets,
+    lastUpdatedAt,
   } = useData();
 
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
@@ -116,6 +118,7 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
       activities,
       initiatives: allDepartmentInitiatives,
       initiativeHistory,
+      performanceTargets,
       fromDate,
       toDate,
     });
@@ -131,6 +134,7 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
     activities,
     allDepartmentInitiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -208,6 +212,15 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-950 text-blue-200 border border-blue-700 font-semibold uppercase">
                   {targetUser.role === 'manager' ? 'Security Manager' : 'Team Member'}
                 </span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${
+                    targetUser.approved
+                      ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700'
+                      : 'bg-amber-950/70 text-amber-200 border-amber-700'
+                  }`}
+                >
+                  {targetUser.approved ? 'Approved Account' : 'Pending Approval'}
+                </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${opBadge.badgeClass}`}>
                   {opBadge.label}
                 </span>
@@ -218,8 +231,8 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
                   <span>{targetUser.email}</span>
                 </span>
                 <span className="text-slate-500">•</span>
-                <span className="font-mono text-[10px] text-slate-400">
-                  ID: {targetUser.id.slice(0, 12)}...
+                <span className="font-mono text-[10px] text-slate-300 select-all">
+                  UUID: {targetUser.id}
                 </span>
               </div>
             </div>
@@ -373,7 +386,7 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
               <div>
                 <div className="font-bold text-slate-900">No Operational History Recorded Yet</div>
                 <p className="text-slate-600 mt-0.5">
-                  This personnel account currently has no assigned tasks, shift activities, or submitted initiatives. Indicators display <strong>No Data</strong> rather than assigning zero or negative scores.
+                  This personnel account currently has no assigned tasks, shift activities, or submitted initiatives. Indicators display <strong>N/A</strong> rather than assigning zero or negative scores.
                 </p>
               </div>
             </div>
@@ -382,32 +395,61 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
           {/* TAB 1: OVERVIEW & TRENDS */}
           {detailTab === 'overview' && (
             <div className="space-y-5">
-              {/* KPI Grid with Numerator/Denominator */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[11px] font-semibold text-slate-500 uppercase">Task Completion</span>
-                  <div className="text-lg font-bold text-slate-900 mt-1">{record.completionRate.display}</div>
-                  <span className="text-[10px] text-slate-400">Completed / eligible assigned</span>
-                </div>
-                <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[11px] font-semibold text-emerald-700 uppercase">On-Time Rate</span>
-                  <div className="text-lg font-bold text-emerald-900 mt-1">{record.onTimeRate.display}</div>
-                  <span className="text-[10px] text-slate-400">Closed on/before due date (PHT)</span>
-                </div>
-                <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[11px] font-semibold text-rose-700 uppercase">Overdue / Returned</span>
-                  <div className="text-lg font-bold text-rose-800 mt-1">
-                    {overdueTasks.length} Overdue • {returnedTasks.length} Returned
+              {/* KPI Grid with Operational Index & Numerator/Denominator */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl">
+                  <span className="text-[10px] font-bold text-blue-800 uppercase">Operational Index</span>
+                  <div className="text-lg font-bold text-blue-950 mt-1 font-mono">
+                    {record.operationalIndex.display}
                   </div>
-                  <span className="text-[10px] text-slate-400">Active workload needing action</span>
+                  <span className="text-[10px] text-blue-700">Non-appraisal weighted</span>
                 </div>
                 <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
-                  <span className="text-[11px] font-semibold text-amber-700 uppercase flex items-center space-x-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase">Task Completion</span>
+                  <div className="text-lg font-bold text-slate-900 mt-1 font-mono">{record.completionRate.display}</div>
+                  <span className="text-[10px] text-slate-400">Completed / period cohort</span>
+                </div>
+                <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
+                  <span className="text-[10px] font-semibold text-emerald-700 uppercase">On-Time SLA</span>
+                  <div className="text-lg font-bold text-emerald-900 mt-1 font-mono">{record.onTimeRate.display}</div>
+                  <span className="text-[10px] text-slate-400">Closed ≤ due date (PHT)</span>
+                </div>
+                <div className="p-3.5 bg-white border border-slate-200 rounded-xl">
+                  <span className="text-[10px] font-semibold text-rose-700 uppercase">Curr. Overdue / Ret.</span>
+                  <div className="text-lg font-bold text-rose-800 mt-1">
+                    {record.overdueTasksCount} Overdue • {record.returnedTasksCount} Ret.
+                  </div>
+                  <span className="text-[10px] text-slate-400">
+                    Open total: {record.allOpenTasksCount} task(s)
+                  </span>
+                </div>
+                <div className="p-3.5 bg-white border border-slate-200 rounded-xl col-span-2 sm:col-span-1">
+                  <span className="text-[10px] font-semibold text-amber-700 uppercase flex items-center space-x-1">
                     <Award className="w-3.5 h-3.5" />
-                    <span>Recognized Initiatives</span>
+                    <span>Recognized Init.</span>
                   </span>
                   <div className="text-lg font-bold text-amber-900 mt-1">{record.recognizedInitiativesCount}</div>
-                  <span className="text-[10px] text-slate-400">Manager-validated contributions</span>
+                  <span className="text-[10px] text-slate-400">Daily Logs: {record.activitiesCount}</span>
+                </div>
+              </div>
+
+              {/* Overdue Cohort Reconciliation Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px]">
+                <div>
+                  <span className="text-slate-500 block">Currently Overdue (All Open)</span>
+                  <strong className="text-rose-800">{record.overdueTasksCount} task(s)</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Became Overdue in Period</span>
+                  <strong className="text-slate-900">{record.becameOverdueInPeriodCount} task(s)</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Historical Overdue (Prior)</span>
+                  <strong className="text-slate-900">{record.historicalOverdueCount} task(s)</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Completed Late in Period</span>
+                  <strong className="text-slate-900">{record.completedLateInPeriodCount} task(s)</strong>
                 </div>
               </div>
 
@@ -428,6 +470,58 @@ export const PersonnelPerformanceModal: React.FC<PersonnelPerformanceModalProps>
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* KPI Formula & Source Records Transparency */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                  <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+                    KPI Calculation Formulas, Weights & Source Records
+                  </h3>
+                  <span className="text-[10px] text-slate-500">
+                    Target Profile:{' '}
+                    <strong>
+                      {record.appliedTarget
+                        ? positions.find((p) => p.id === record.appliedTarget?.position_id)?.title ||
+                          organizationalUnits.find((u) => u.id === record.appliedTarget?.unit_id)?.name ||
+                          record.appliedTarget.notes?.split(':')[0] ||
+                          'Standard Profile'
+                        : 'Standard Profile'}
+                    </strong>{' '}
+                    • Synced {formatPhilippineDateTime(lastUpdatedAt)}
+                  </span>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                  <table className="w-full text-left text-[11px]">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="p-2">Indicator</th>
+                        <th className="p-2">Formula</th>
+                        <th className="p-2 text-center">Weight</th>
+                        <th className="p-2 text-center">Num / Den</th>
+                        <th className="p-2">Value</th>
+                        <th className="p-2">Source Record Set</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {record.kpiBreakdowns.map((b) => (
+                        <tr key={b.metric}>
+                          <td className="p-2 font-semibold text-slate-900">{b.metric}</td>
+                          <td className="p-2 text-slate-600">{b.formula}</td>
+                          <td className="p-2 text-center font-mono text-slate-700">{b.weightPercent}%</td>
+                          <td className="p-2 text-center font-mono text-slate-700">
+                            {b.numerator}/{b.denominator}
+                          </td>
+                          <td className="p-2 font-mono font-bold text-blue-900">{b.valueDisplay}</td>
+                          <td className="p-2 text-slate-500 font-mono text-[10px]">{b.sourceRecordSet}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  {record.operationalIndex.formulaDescription}
+                </p>
               </div>
 
               {/* Monthly Trend Chart */}

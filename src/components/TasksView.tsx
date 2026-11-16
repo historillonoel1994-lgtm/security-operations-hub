@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useData } from '../context/DataContext.tsx';
 import { Task, TaskStatus } from '../types/index.ts';
@@ -25,6 +25,7 @@ interface TasksViewProps {
   onSelectTask: (task: Task) => void;
   onOpenEditTask?: (task: Task) => void;
   onOpenReopenTask?: (task: Task) => void;
+  initialStatusFilter?: string;
 }
 
 export const TasksView: React.FC<TasksViewProps> = ({
@@ -32,13 +33,20 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onSelectTask,
   onOpenEditTask,
   onOpenReopenTask,
+  initialStatusFilter = 'all',
 }) => {
   const { isManager, isApproved } = useAuth();
   const { tasks } = useData();
 
-  const [activeStatusTab, setActiveStatusTab] = useState<string>('all');
+  const [activeStatusTab, setActiveStatusTab] = useState<string>(initialStatusFilter);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('all');
+
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setActiveStatusTab(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {

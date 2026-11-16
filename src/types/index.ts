@@ -1,6 +1,6 @@
 /**
  * Security Operations Hub (SOH) - Type Definitions
- * Designed for Philippine Corporate Security Management
+ * Designed for Security Department Operations Management (Philippines)
  */
 
 export type UserRole = 'manager' | 'member';
@@ -325,6 +325,11 @@ export interface PerformanceTarget {
   target_completion_rate: number;
   target_on_time_rate: number;
   monthly_initiative_goal: number;
+  weight_completion?: number;
+  weight_on_time?: number;
+  weight_activity?: number;
+  weight_initiative?: number;
+  daily_activity_target?: number;
   notes?: string;
   updated_at?: string;
 }
@@ -359,7 +364,25 @@ export interface KpiFraction {
   numerator: number;
   denominator: number;
   percentage: number | null;
-  display: string; // e.g., "85% (17/20)" or "No Data"
+  display: string; // e.g., "85% (17/20)" or "N/A"
+}
+
+export interface KpiFormulaBreakdown {
+  metric: string;
+  formula: string;
+  numerator: number;
+  denominator: number;
+  weightPercent?: number;
+  valueDisplay: string;
+  sourceRecordSet: string;
+}
+
+export interface OperationalIndexSummary {
+  score: number | null;
+  display: string;
+  label: string;
+  isNonAppraisal: true;
+  formulaDescription: string;
 }
 
 export interface FunctionIndicator {
@@ -376,15 +399,21 @@ export interface PersonnelPerformanceRecord {
   region: OperatingRegion | null;
   supervisor: { id: string; name: string; positionTitle: string; email?: string } | null;
   totalAssignedTasks: number;
-  activeTasksCount: number;
+  activeTasksCount: number; // Open tasks in selected cohort
+  allOpenTasksCount: number; // All open tasks regardless of period
   dueTodayCount: number;
-  overdueTasksCount: number;
+  overdueTasksCount: number; // Currently Overdue Tasks (all open tasks due_date < today PHT)
+  becameOverdueInPeriodCount: number; // Open overdue tasks due inside [fromDate, toDate]
+  historicalOverdueCount: number; // Open overdue tasks due strictly before fromDate
+  completedLateInPeriodCount: number; // Closed in [fromDate, toDate] after due_date
   forReviewCount: number;
   returnedTasksCount: number;
   completedTasksCount: number;
+  completedWithDueCount: number;
   onTimeCompletedCount: number;
   completionRate: KpiFraction;
   onTimeRate: KpiFraction;
+  dailyActivityRate: KpiFraction;
   activitiesCount: number;
   totalInitiativesCount: number;
   pendingInitiativesCount: number;
@@ -395,14 +424,23 @@ export interface PersonnelPerformanceRecord {
   lastRecordedActivityTitle: string | null;
   hasAnyHistory: boolean;
   functionIndicators: FunctionIndicator[];
+  appliedTarget: PerformanceTarget | null;
+  operationalIndex: OperationalIndexSummary;
+  kpiBreakdowns: KpiFormulaBreakdown[];
 }
 
 export interface UnitPerformanceSummary {
   unit: OrganizationalUnit;
   activeUsersCount: number;
   activeTasksCount: number;
+  allOpenTasksCount: number;
+  totalAssignedTasks: number;
   completedTasksCount: number;
-  overdueTasksCount: number;
+  completedWithDueCount: number;
+  onTimeCompletedCount: number;
+  overdueTasksCount: number; // Currently Overdue Tasks
+  becameOverdueInPeriodCount: number;
+  completedLateInPeriodCount: number;
   pendingReviewsCount: number;
   returnedSubmissionsCount: number;
   recognizedInitiativesCount: number;
@@ -415,14 +453,24 @@ export interface UnitPerformanceSummary {
 export interface RegionalPerformanceSummary {
   region: OperatingRegion;
   assignedPersonnelCount: number;
+  assignedSupervisors: { id: string; name: string; positionTitle: string }[];
   activeTasksCount: number;
+  allOpenTasksCount: number;
+  totalCohortTasks: number;
   completedTasksCount: number;
-  overdueTasksCount: number;
+  completedWithDueCount: number;
+  onTimeCompletedCount: number;
+  overdueTasksCount: number; // Currently Overdue Tasks in this region
+  becameOverdueInPeriodCount: number;
+  completedLateInPeriodCount: number;
   pendingReviewsCount: number;
   returnedSubmissionsCount: number;
   recognizedInitiativesCount: number;
   completionRate: KpiFraction;
   onTimeRate: KpiFraction;
   activitiesCount: number;
+  latestActivityDate: string | null;
+  isConsolidatedGroup?: boolean;
+  childRegionIds?: string[];
 }
 

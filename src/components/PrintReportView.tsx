@@ -10,6 +10,7 @@ import {
   computePersonnelPerformance,
   computeUnitPerformanceSummaries,
   computeRegionalPerformanceSummaries,
+  computeConsolidatedRegionRollups,
   getDateRangeForPreset,
   isTaskInReportingCohort,
   isWithinDateWindow,
@@ -43,6 +44,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     positions,
     operatingRegions,
     assignmentsByUserId,
+    performanceTargets,
     mySupervisor,
   } = useData();
 
@@ -84,6 +86,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
       activities,
       initiatives: sourceInitiatives,
       initiativeHistory,
+      performanceTargets,
       fromDate,
       toDate,
     });
@@ -99,6 +102,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     activities,
     sourceInitiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -152,6 +156,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           activities,
           initiatives: sourceInitiatives,
           initiativeHistory,
+          performanceTargets,
           fromDate,
           toDate,
         })
@@ -170,6 +175,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     activities,
     sourceInitiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -206,6 +212,11 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
     fromDate,
     toDate,
   ]);
+
+  const consolidatedRollups = useMemo(
+    () => computeConsolidatedRegionRollups(regionalSummaries),
+    [regionalSummaries]
+  );
 
   const handlePrint = () => {
     window.print();
@@ -276,7 +287,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               <div className="flex items-center space-x-2 text-slate-900">
                 <Shield className="w-6 h-6 text-blue-900" />
                 <span className="text-lg font-bold uppercase tracking-wider">
-                  Corporate Security Operations Hub
+                  Security Operations Hub — Security Department
                 </span>
               </div>
               <p className="text-xs text-slate-700 font-semibold">
@@ -354,13 +365,19 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               <div className="font-semibold text-slate-900 mt-0.5">
                 {individualRecord.lastRecordedActivityDate
                   ? formatPhilippineDate(individualRecord.lastRecordedActivityDate)
-                  : 'No Data'}
+                  : 'N/A'}
               </div>
             </div>
           </div>
 
           {/* KPI Summary Metrics */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 p-4 bg-white border border-slate-300 rounded-lg text-center text-xs">
+          <div className="grid grid-cols-3 sm:grid-cols-7 gap-2.5 p-4 bg-white border border-slate-300 rounded-lg text-center text-xs">
+            <div>
+              <span className="text-blue-800 font-semibold text-[11px]">Op. Index</span>
+              <div className="text-base font-bold text-blue-950 mt-0.5 font-mono">
+                {individualRecord.operationalIndex.display}
+              </div>
+            </div>
             <div>
               <span className="text-slate-500 font-medium text-[11px]">Tasks in Cohort</span>
               <div className="text-lg font-bold text-slate-900 mt-0.5">{individualRecord.totalAssignedTasks}</div>
@@ -370,7 +387,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               <div className="text-lg font-bold text-emerald-800 mt-0.5">{individualRecord.completedTasksCount}</div>
             </div>
             <div>
-              <span className="text-rose-700 font-medium text-[11px]">Overdue</span>
+              <span className="text-rose-700 font-medium text-[11px]">Curr. Overdue</span>
               <div className="text-lg font-bold text-rose-800 mt-0.5">{individualRecord.overdueTasksCount}</div>
             </div>
             <div>
@@ -522,7 +539,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             <div className="space-y-12">
               <div>
                 <span className="font-semibold block text-slate-700">Reviewed & Verified By:</span>
-                <p className="text-slate-500 text-[11px]">Corporate Security Manager</p>
+                <p className="text-slate-500 text-[11px]">Security Manager (Security Department)</p>
               </div>
               <div className="border-t border-slate-400 pt-1 text-slate-600">
                 Signature over Printed Name / Date
@@ -531,7 +548,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
           </div>
 
           <p className="text-[10px] text-slate-500 italic pt-2">
-            Disclaimer: Operational metrics represent recorded Security Operations Hub activity and support supervisory coordination. This summary does not replace formal corporate HR evaluation records.
+            Disclaimer: Operational metrics represent recorded Security Operations Hub activity and support supervisory coordination. This summary does not replace formal HR evaluation records.
           </p>
         </div>
       ) : (
@@ -545,7 +562,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
               <div className="flex items-center space-x-2 text-slate-900">
                 <Shield className="w-6 h-6 text-blue-900" />
                 <span className="text-xl font-bold uppercase tracking-wider">
-                  Corporate Security Operations Hub
+                  Security Operations Hub — Security Department
                 </span>
               </div>
               <p className="text-xs text-slate-600 font-medium">
@@ -630,7 +647,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                     <tr>
                       <th className="p-1.5">Region</th>
                       <th className="p-1.5 text-center">Done</th>
-                      <th className="p-1.5 text-center">Overdue</th>
+                      <th className="p-1.5 text-center">Curr. Overdue</th>
                       <th className="p-1.5">Completion</th>
                     </tr>
                   </thead>
@@ -641,6 +658,14 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
                         <td className="p-1.5 text-center">{r.completedTasksCount}</td>
                         <td className="p-1.5 text-center">{r.overdueTasksCount}</td>
                         <td className="p-1.5 font-mono">{r.completionRate.display}</td>
+                      </tr>
+                    ))}
+                    {[consolidatedRollups.consolidatedVisayas, consolidatedRollups.consolidatedMindanao].map((cg) => (
+                      <tr key={cg.region.id} className="bg-blue-50/70 font-semibold">
+                        <td className="p-1.5">{cg.region.name}</td>
+                        <td className="p-1.5 text-center">{cg.completedTasksCount}</td>
+                        <td className="p-1.5 text-center">{cg.overdueTasksCount}</td>
+                        <td className="p-1.5 font-mono">{cg.completionRate.display}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -793,7 +818,7 @@ export const PrintReportView: React.FC<PrintReportViewProps> = ({
             <div className="space-y-12">
               <div>
                 <span className="font-semibold block text-slate-700">Reviewed & Approved By:</span>
-                <p className="text-slate-500 text-[11px]">Corporate Security Manager</p>
+                <p className="text-slate-500 text-[11px]">Security Manager (Security Department)</p>
               </div>
               <div className="border-t border-slate-400 pt-1 text-slate-600">
                 Signature over Printed Name / Date

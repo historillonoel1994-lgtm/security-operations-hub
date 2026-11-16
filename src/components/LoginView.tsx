@@ -47,7 +47,7 @@ export const LoginView: React.FC = () => {
           Security Operations Hub
         </h2>
         <p className="mt-1 text-center text-xs text-slate-400">
-          Corporate Security Command & Field Task Delegation System
+          Security Department Command & Field Task Delegation System
         </p>
       </div>
 
@@ -152,7 +152,7 @@ export const LoginView: React.FC = () => {
             <Lock className="w-4 h-4 text-blue-700 flex-shrink-0 mt-0.5" />
             <div>
               <span className="font-bold text-slate-800 block">Authorized Access Only</span>
-              All login attempts and task delegations are audited in compliance with corporate physical security policies.
+              All login attempts and task delegations are audited in compliance with Security Department operational policies.
             </div>
           </div>
         </div>

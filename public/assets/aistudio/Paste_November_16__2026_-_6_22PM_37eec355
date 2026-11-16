@@ -1,0 +1,1316 @@
+# SECURITY OPERATIONS HUB (SOH)
+# INTEGRATED SECURITY MANAGER COMMAND & CONTROL SYSTEM
+
+## SECURITY DEPARTMENT
+### Complete Application Enhancement & Implementation Master Prompt
+
+---
+
+# 1. ROLE AND DEVELOPMENT OBJECTIVE
+
+Act as a senior enterprise application architect, full-stack React and TypeScript developer, Supabase database architect, cybersecurity specialist, and security operations management systems designer.
+
+Your assignment is to upgrade my existing **Security Operations Hub (SOH)** into a comprehensive, centralized **Security Manager Command & Control System** for the **Security Department**.
+
+The system must support nationwide security operations, personnel accountability, regional monitoring, task management, security incidents, investigations, facility security coverage, security projects, and management decision-making.
+
+**CRITICAL REQUIREMENT: THIS IS AN ENHANCEMENT OF AN EXISTING WORKING APPLICATION, NOT A NEW APPLICATION.**
+
+The current SOH is already connected to:
+
+- Google AI Studio — Application development
+- Supabase — Database, authentication, and backend
+- GitHub — Source code repository
+- Netlify — Application hosting and deployment
+
+Do not rebuild the application, create duplicate modules, reset the database, or remove existing working features.
+
+Preserve all operational records, registered users, task histories, activity submissions, Member Initiatives, management approvals, and audit logs.
+
+---
+
+# 2. APPLICATION IDENTITY AND BRANDING
+
+Use the following identity consistently throughout the application.
+
+**Application Name:** Security Operations Hub
+
+**Application Acronym:** SOH
+
+**Department Name:** Security Department
+
+**System Description:** Corporate Security Command & Field Task Management System
+
+**Main Dashboard Title:** Security Manager Command Dashboard
+
+**Application Purpose:** Centralized security operations monitoring, workforce accountability, incident awareness, performance management, and management decision support.
+
+Remove any specific company name from:
+
+- Application titles and headers
+- Login screens
+- Dashboard descriptions
+- Navigation menus
+- Reports and exports
+- Application metadata
+- Footer information
+- Notification templates
+- Email templates
+- Printed reports
+- Default organization labels
+
+Use **Security Department** wherever an organizational name is required.
+
+Do not rename technical identifiers, database tables, authentication configuration, or deployment resources merely to change the displayed organization name.
+
+Maintain the existing professional corporate navy-blue, white, and light-gray design.
+
+---
+
+# 3. CORE MANAGEMENT OBJECTIVE
+
+The Security Manager Command Dashboard must answer three questions within five seconds of opening:
+
+**1. What requires my immediate attention?**
+
+**2. Which region, facility, or personnel needs intervention?**
+
+**3. What decisions or approvals are waiting for me?**
+
+Prioritize urgent operational concerns, critical incidents, overdue actions, and management decisions rather than general activity counts.
+
+All operational information must be based on actual verified Supabase records.
+
+Do not display fabricated statistics or automatically claim real-time coverage when no current data source is available.
+
+---
+
+# 4. PRESERVE EXISTING SOH MODULES
+
+Before making changes, inspect the current React components, application navigation, Supabase queries, database relationships, and authorization logic.
+
+Preserve the following existing functions:
+
+1. Google OAuth Login and Logout
+2. Manager / Administrator Account
+3. Team Member Account Registration
+4. Account Approval and Activation
+5. Manager Task Creation
+6. Task Assignment and Reassignment
+7. Manager Task Editing
+8. Task Progress Updates
+9. Task Return for Revision
+10. Task Accomplishment Submission
+11. Manager Approval and Task Closure
+12. Daily Activities
+13. Member Initiatives
+14. Initiative Approval and Recognition
+15. Personnel Directory
+16. Organizational Hierarchy
+17. Individual Personnel Performance
+18. Team and Regional Performance
+19. Management Reports
+20. Audit Logs
+
+Reuse existing components whenever possible.
+
+Do not create a second personnel directory, second approval system, duplicate Member Initiative module, or alternative task database.
+
+---
+
+# 5. SECURITY DEPARTMENT ORGANIZATIONAL STRUCTURE
+
+Design the application around a configurable Security Department hierarchy.
+
+## Executive Leadership
+
+- VP & Head of Security
+
+## Department Management
+
+- Security Manager
+
+## Functional Groups
+
+### A. Regional Security Operations
+
+Includes:
+
+- Regional Security Supervisors
+- Security Investigators
+- Security Officers
+- Authorized regional personnel
+
+Regional coverage:
+
+- NCR & Rizal
+- North Luzon
+- Central Luzon
+- South Luzon
+- Bicol
+- Visayas Region 6
+- Visayas Region 7
+- Mindanao Region 10
+- Mindanao Region 11
+
+Support consolidated Visayas and Mindanao reporting while preserving their individual regional subdivisions.
+
+### B. Security Command Center
+
+Includes:
+
+- Command Center Supervisor
+- CCTV Operators
+- Centralized monitoring personnel
+- Site-based monitoring personnel
+
+### C. Report Management
+
+Includes:
+
+- Report Management Officers
+- Incident reporting support
+- Documentation and report monitoring
+- Management follow-up personnel
+
+### D. Security Support Functions
+
+Includes:
+
+- Authorized security support personnel
+- Security agency coordination
+- Facility security support
+- Other personnel approved by the Security Manager
+
+Allow organizational units, reporting relationships, positions, regions, and facility assignments to be modified by authorized management.
+
+Do not hardcode individual employee names.
+
+Do not automatically create SOH accounts for all agency-deployed security guards.
+
+Distinguish between:
+
+- Registered SOH users
+- Authorized Security Department personnel
+- Agency-deployed security guards
+- Authorized security posts
+- Personnel physically reported on duty
+
+---
+
+# 6. MANAGER COMMAND DASHBOARD
+
+Upgrade the existing Manager Dashboard into a comprehensive operational command interface.
+
+Organize the dashboard into five major sections.
+
+## A. EXECUTIVE SECURITY OVERVIEW
+
+Display six primary operational KPI cards:
+
+1. **Critical and Active Security Incidents**
+2. **Open Investigations**
+3. **Overdue Tasks and Corrective Actions**
+4. **Security Personnel Currently on Duty**
+5. **Active Facility Security Coverage**
+6. **Pending Management Approvals**
+
+Each KPI card must be clickable.
+
+Clicking a KPI should open the corresponding filtered record list.
+
+For example:
+
+- Open Investigations → Investigation Management
+- Pending Approvals → Management Action Center
+- Overdue Tasks → Filtered Tasks Page
+- Facility Coverage → Facilities and Deployment Dashboard
+
+Show the latest successful synchronization time.
+
+Where a module has not yet been configured, display **Not Configured** or **Data Unavailable**, rather than falsely showing zero incidents or full facility coverage.
+
+## B. REGIONAL SECURITY OPERATIONS
+
+Provide a regional monitoring dashboard with the following:
+
+- Region
+- Assigned Regional Supervisor
+- Registered Personnel
+- Active Tasks
+- Completed Tasks
+- Overdue Tasks
+- Open Security Incidents
+- Active Investigations
+- Pending Management Reviews
+- Latest Activity Submission
+- SLA Compliance Percentage
+- Facility Coverage Exceptions
+
+Allow the Manager to click a region to view:
+
+1. Regional summary
+2. Assigned Supervisors
+3. Personnel directory
+4. Individual performance
+5. Tasks and corrective actions
+6. Incidents and investigations
+7. Facility security status
+
+All regional totals must reconcile with the corresponding individual and department records when using the same date filters and reporting population.
+
+## C. PERSONNEL PERFORMANCE MANAGEMENT
+
+Retain and strengthen the current Personnel Directory & Performance Command module.
+
+Provide department-wide, regional, team, and individual performance views.
+
+## D. SECURITY INCIDENT AND INVESTIGATION MONITORING
+
+Provide centralized monitoring of reported security incidents, assigned investigations, case deadlines, and management action requirements.
+
+Highlight critical incidents and overdue investigations.
+
+## E. MANAGEMENT ACTION CENTER
+
+Provide a prioritized list of items requiring Manager decisions:
+
+- Tasks submitted for approval
+- Member Initiatives pending authorization
+- Member accomplishments pending recognition
+- Returned tasks requiring correction
+- Overdue investigation reports
+- Unresolved critical incidents
+- Guard deployment shortages
+- Outstanding facility inspections
+- Unresolved corrective actions
+- Security project blockers
+
+Every item must link directly to its corresponding operational record.
+
+---
+
+# 7. PERSONNEL DIRECTORY & ORGANIZATIONAL HIERARCHY
+
+The existing SOH already includes a Personnel module.
+
+Enhance this module instead of recreating it.
+
+## Personnel Directory
+
+Display the following for every registered authorized user:
+
+- Full Name
+- Registered Email
+- Unique User ID
+- Application Role
+- Position / Designation
+- Department or Unit
+- Region
+- Assigned Facility or Site
+- Immediate Supervisor
+- Account Approval Status
+- Active Task Count
+- Overdue Task Count
+- Completed Task Count
+- Recognized Initiatives
+- Latest Activity Submission
+- View Performance button
+
+Provide filters for:
+
+- Name
+- Department
+- Region
+- Position
+- Supervisor
+- Account Status
+- Reporting Period
+
+Use the unique Supabase authentication UUID to identify personnel.
+
+Users with identical names must be distinguishable using their registered email and role.
+
+## Organizational Hierarchy
+
+Support the reporting relationship:
+
+VP & Head of Security → Security Manager → Regional / Functional Supervisor → Team Member.
+
+Allow direct reporting to the Security Manager where appropriate.
+
+Prevent:
+
+- Self-supervision
+- Circular reporting relationships
+- Unauthorized role modification
+- Unauthorized supervisor changes
+- Team Members promoting themselves to Manager
+
+Separate organizational designation from application permissions.
+
+A user designated as Regional Supervisor must not automatically obtain Manager-level database access.
+
+---
+
+# 8. INDIVIDUAL PERSONNEL PERFORMANCE DASHBOARD
+
+Provide a personal **My Performance Dashboard** for every approved subordinate account.
+
+Display:
+
+- Personnel Name
+- Position
+- Department
+- Region
+- Immediate Supervisor
+- Assigned Tasks
+- Tasks In Progress
+- Completed Tasks
+- Overdue Tasks
+- Returned for Revision
+- Pending Management Approval
+- Daily Activity Submissions
+- Recognized Initiatives
+- On-Time Completion Percentage
+- Monthly Accomplishment History
+- Manager Feedback
+- Outstanding Corrective Actions
+
+Organize the page into:
+
+### A. My Accomplishments
+
+Display completed assignments, approved accomplishments, and recognized initiatives.
+
+### B. My Current Workload
+
+Display active tasks, pending activities, and upcoming deadlines.
+
+### C. Needs Attention
+
+Display overdue work, returned submissions, unresolved requirements, and pending corrections.
+
+### D. My Performance Trends
+
+Provide monthly charts of task completion, on-time performance, and validated initiatives.
+
+### E. Manager Feedback
+
+Display relevant comments, returned-for-revision remarks, and improvement recommendations.
+
+Regular Team Members must only see their own protected individual performance records.
+
+Managers must be able to open individual personnel dashboards through the Personnel Directory.
+
+---
+
+# 9. PERFORMANCE INDICATORS AND KPI SCORING
+
+Implement consistent, documented operational KPI definitions.
+
+## Task Completion Rate
+
+Completed eligible tasks divided by eligible assigned tasks within the selected reporting cohort.
+
+## On-Time Completion Rate
+
+Completed tasks finished on or before the applicable deadline divided by eligible completed tasks with valid deadlines.
+
+## Current Overdue Tasks
+
+Open tasks with deadlines earlier than the current Philippine business date or applicable deadline time.
+
+## Pending Review
+
+Tasks submitted for Manager approval but not yet approved or returned.
+
+## Returned Submissions
+
+Submission events returned for correction during the selected reporting period.
+
+## Recognized Initiatives
+
+Member Initiatives with final validated recognition.
+
+## Daily Activity Compliance
+
+Completed required activity submissions divided by applicable expected submissions.
+
+## SLA Compliance
+
+Eligible cases or requests completed within the defined SLA divided by eligible cases.
+
+Implement configurable KPI targets and weights by personnel function.
+
+Different operational positions must support different scoring criteria.
+
+Do not score Regional Supervisors, Investigators, CCTV Operators, and Report Management Officers using one identical performance model.
+
+Show:
+
+- Calculation formula
+- Numerator
+- Denominator
+- Reporting period
+- Source records
+- Last updated timestamp
+
+Display **N/A** where insufficient data exists.
+
+Do not treat zero assignments as poor performance.
+
+Do not automatically generate employee disciplinary recommendations, employment decisions, or formal personnel ratings.
+
+---
+
+# 10. TASK MANAGEMENT AND APPROVALS
+
+Preserve and enhance the current task management system.
+
+Allow authorized Managers to:
+
+- Create tasks
+- Assign personnel
+- Edit task details
+- Correct designated personnel
+- Reassign tasks
+- Update priorities
+- Modify deadlines with an audit reason
+- Return accomplishments for revision
+- Approve accomplishments
+- Close tasks
+- Reopen tasks with documented justification
+
+Maintain the existing task history when task ownership changes.
+
+Avoid duplicate assignments or loss of previous updates.
+
+Preserve the distinction between:
+
+- Assigned
+- In Progress
+- For Review
+- Returned for Revision
+- Completed
+
+Completed tasks should not be silently edited without an authorized reopening action.
+
+Manager approval and task closure must update the relevant dashboard statistics.
+
+---
+
+# 11. MEMBER INITIATIVES AND RECOGNITION
+
+Preserve the existing Member Initiatives module.
+
+Allow approved Team Members to submit:
+
+1. Proposed Activities requiring authorization before execution.
+2. Self-Initiated Accomplishments documenting permitted activities already performed.
+
+Workflow for proposed activities:
+
+Member Proposal → Manager Review → Approval to Proceed → Member Performs Activity → Accomplishment Submission → Manager Validation → Recognized Initiative.
+
+Workflow for completed permitted activities:
+
+Member Submits Accomplishment → Manager Validation → Recognized Initiative or Returned for Revision.
+
+Do not count a proposed or preliminarily approved initiative as a recognized accomplishment.
+
+Provide:
+
+- Initiative History
+- Manager Remarks
+- Revision Tracking
+- Recognition Date
+- Related Tasks
+- Initiative Reporting
+
+Prevent duplicate recognition and unauthorized self-approval.
+
+---
+
+# 12. SECURITY INCIDENT MANAGEMENT
+
+Introduce a Security Incident Management module if it does not already exist.
+
+Required fields:
+
+- Incident Reference Number
+- Date and Time of Incident
+- Date and Time Reported
+- Region
+- Facility / Site
+- Incident Category
+- Incident Description
+- Severity Level
+- Reporting Personnel
+- Assigned Investigator
+- Response Deadline
+- Case Status
+- Latest Progress Update
+- Recommended Management Action
+- Manager Review
+- Closure Date
+
+Severity Levels:
+
+- Critical
+- High
+- Medium
+- Low
+
+Case Statuses:
+
+- New
+- Assigned
+- Under Investigation
+- For Review
+- Resolved
+- Closed
+
+Critical incidents must be displayed prominently on the Manager Command Dashboard.
+
+Provide incident history, escalation monitoring, and appropriate confidentiality restrictions.
+
+Do not automatically treat reported allegations as confirmed findings.
+
+---
+
+# 13. INVESTIGATION MANAGEMENT
+
+Add an investigation monitoring workflow integrated with the Incident Management module.
+
+Include:
+
+- Investigation Reference Number
+- Related Incident
+- Assigned Investigator
+- Assigned Supervisor
+- Investigation Start Date
+- Deadline
+- Investigation Progress
+- Preliminary Findings
+- Final Findings
+- Evidence References
+- Recommended Action
+- Manager Feedback
+- Case Closure
+
+Provide dashboards for:
+
+- Open Investigations
+- Overdue Investigations
+- Investigations for Review
+- Returned Investigations
+- Closed Investigations
+
+Use restricted record access.
+
+Only specifically authorized personnel may access sensitive investigation information.
+
+---
+
+# 14. SECURITY FACILITY AND GUARD DEPLOYMENT MONITORING
+
+Introduce facility security coverage monitoring.
+
+Required facility information:
+
+- Facility Name
+- Facility Category
+- Region
+- Assigned Supervisor
+- Authorized Guard Posts
+- Required Deployment
+- Actual Reported Deployment
+- Date and Shift
+- Coverage Status
+- Outstanding Deficiencies
+- Corrective Action
+- Latest Verification
+
+Monitor:
+
+- Unfilled security posts
+- Guard deployment shortages
+- Unexpected deployment variance
+- Unreported guard attendance
+- Outstanding site inspections
+- Unresolved facility security findings
+
+Do not calculate personnel on duty using registered SOH accounts.
+
+Use verified duty and deployment records.
+
+When current attendance data is unavailable, display the latest reported status with the corresponding timestamp.
+
+Do not falsely label historical information as live coverage.
+
+---
+
+# 15. SECURITY PROJECTS AND PROGRAMS
+
+Add a Security Projects & Programs module.
+
+Monitor the following programs:
+
+### MATANGLAWIN
+Centralized CCTV Monitoring System
+
+### LAGUSAN
+Door Access Enhancement
+
+### TABANG
+SLA Response and Support
+
+### BISITA
+Security Visits and Inspections
+
+### TULUNGAN
+Inter-TELCO Collaboration
+
+### KALIGTASAN
+Safety and Occupational Health Program
+
+For every project, display:
+
+- Project Name
+- Project Code
+- Project Owner
+- Supporting Personnel
+- Objectives
+- Scope
+- Milestones
+- Due Dates
+- Current Progress
+- Blockers
+- Risks
+- Outstanding Actions
+- Required Management Decisions
+- Latest Update
+- Project Status
+
+Use live project records.
+
+Do not automatically populate historical progress figures as current performance.
+
+Allow the Manager to add, edit, and monitor milestones.
+
+Project blockers requiring management intervention must appear in the Management Action Center.
+
+---
+
+# 16. DATA ACCURACY AND DASHBOARD RECONCILIATION
+
+This is a mandatory implementation requirement.
+
+Inspect the existing dashboard queries for inconsistencies.
+
+Specifically investigate cases where:
+
+- A personnel record displays overdue work.
+- The main dashboard shows zero overdue tasks for the selected reporting period.
+
+Clearly distinguish:
+
+- Currently Overdue Tasks
+- Became Overdue During Period
+- Historical Overdue Tasks
+- Completed Late
+- Due Today
+- Outstanding Tasks Regardless of Period
+
+Ensure task status filters, reporting periods, and date comparisons are consistent.
+
+Use Asia/Manila timezone for displayed Philippine business dates.
+
+Preserve consistent database timestamp handling.
+
+Avoid double-counting tasks after reassignment.
+
+Avoid counting duplicate approval submissions.
+
+Department totals must reconcile with regional, team, and individual totals when their filters and populations are equivalent.
+
+Provide:
+
+- Loading indicators
+- Error states
+- No Records messages
+- Data Unavailable messages
+- Last Successful Synchronization timestamp
+- Manual Refresh button
+
+Refreshing must preserve selected filters whenever possible.
+
+---
+
+# 17. LIVE DATA SYNCHRONIZATION
+
+Use Supabase as the authoritative database.
+
+Implement secure live dashboard updates using Supabase Realtime or a documented fallback refresh strategy.
+
+Refresh relevant dashboard information when:
+
+- Tasks are created
+- Tasks are reassigned
+- Progress is updated
+- Accomplishments are approved
+- Tasks are returned for revision
+- Initiatives are approved
+- Initiatives are recognized
+- Personnel assignments change
+- Incidents are reported
+- Investigations are updated
+- Facility deployment records change
+- Project milestones are updated
+
+Update the following views:
+
+- Manager Command Dashboard
+- Personnel Directory
+- Individual Performance
+- Regional Performance
+- Management Action Center
+- Reports
+
+Use efficient subscriptions and data queries.
+
+Apply database access restrictions to realtime data.
+
+Do not expose unauthorized records through subscriptions.
+
+---
+
+# 18. SUPABASE DATABASE AND MIGRATION CONTROL
+
+Use the existing Supabase project.
+
+Known existing tables include:
+
+- profiles
+- tasks
+- task_updates
+- activities
+- audit_logs
+
+Inspect any additional tables for:
+
+- Member Initiatives
+- Organizational Units
+- Personnel Hierarchy
+- Performance Metrics
+- Reporting History
+
+The existing SOH application previously displayed the notification:
+
+**Organizational & Hierarchy Migration Pending**
+
+Associated file:
+
+`supabase/migration_personnel_hierarchy.sql`
+
+Before generating any new migration:
+
+1. Inspect this migration.
+2. Verify whether it has already been executed.
+3. Check the actual Supabase schema.
+4. Identify missing tables or columns.
+5. Identify partially applied migrations.
+6. Avoid creating duplicate personnel structures.
+
+Possible additional tables, if required:
+
+- security_incidents
+- investigations
+- investigation_updates
+- facilities
+- guard_deployments
+- coverage_exceptions
+- corrective_actions
+- security_projects
+- project_milestones
+- performance_targets
+- reporting_history
+
+These are suggested entities only.
+
+Inspect existing database objects before adding them.
+
+Generate non-destructive SQL migrations separately.
+
+Do not automatically run migrations in production.
+
+Do not delete or overwrite existing records.
+
+---
+
+# 19. USER ROLES AND SECURITY PERMISSIONS
+
+Maintain the existing Google OAuth authentication and account approval process.
+
+Implement database-enforced access restrictions.
+
+## Manager / Admin
+
+Can:
+
+- View authorized department-wide operational information
+- Manage personnel hierarchy
+- Assign and reassign tasks
+- Review performance
+- Approve accomplishments
+- Recognize initiatives
+- Manage authorized incident and investigation records
+- Monitor facility coverage
+- Review security project progress
+- Generate management reports
+
+## Supervisor
+
+Can:
+
+- View assigned regional or functional team records
+- Monitor explicitly authorized subordinate work
+- Submit their own accomplishments
+- Provide supervisory feedback
+- Access permitted operational information
+- Perform delegated approval functions only when specifically configured
+
+Supervisor authority must be separated from organizational position.
+
+## Team Member
+
+Can:
+
+- View their own dashboard
+- View assigned tasks
+- Submit progress reports
+- Submit daily activities
+- Propose initiatives
+- Submit accomplishments
+- View Manager feedback
+- View their own performance records
+
+Cannot:
+
+- Approve their own accomplishments
+- Change their system role
+- Reassign protected tasks without authorization
+- Access other personnel's private records
+- Modify audit history
+
+## Unapproved / Inactive Users
+
+Must not access protected Security Department records.
+
+Enforce Row Level Security at the database level.
+
+Do not rely solely on hiding frontend buttons.
+
+Use appropriate authenticated database functions for sensitive actions.
+
+Never expose Supabase service-role or secret keys in frontend source code.
+
+---
+
+# 20. AUDIT TRAIL AND ACCOUNTABILITY
+
+Record important actions, including:
+
+- User approval
+- Role change
+- Personnel reassignment
+- Supervisor assignment
+- Task reassignment
+- Task editing
+- Task approval
+- Returned accomplishments
+- Initiative validation
+- Incident severity changes
+- Investigation assignment
+- Investigation closure
+- Facility coverage corrections
+- Performance configuration changes
+- Security project milestone changes
+
+Capture:
+
+- Affected Record ID
+- Action Type
+- Acting User ID
+- Previous Value
+- New Value
+- Timestamp
+- Reason / Manager Remarks
+
+Do not allow ordinary personnel to delete or alter historical audit records.
+
+---
+
+# 21. MANAGEMENT REPORTS AND ANALYTICS
+
+Enhance the existing Reports module.
+
+Provide the following reports:
+
+1. Executive Security Summary
+2. Department Performance Report
+3. Regional Security Operations Report
+4. Team Performance Report
+5. Individual Personnel Report
+6. Daily Activity Compliance Report
+7. Overdue Assignments Report
+8. Management Approval Backlog
+9. Member Initiative Recognition Report
+10. Security Incident Summary
+11. Investigation Monitoring Report
+12. Facility Security Coverage Report
+13. Corrective Action Report
+14. Security Projects Progress Report
+
+Provide:
+
+- Date range selector
+- Region filter
+- Department filter
+- Personnel filter
+- Status filter
+- Interactive charts
+- CSV export
+- Print-friendly reports
+
+All reports must use actual permitted Supabase data.
+
+Include the applied filters, reporting period, report generation date, and KPI definitions.
+
+Protect confidential records and personally identifiable information.
+
+---
+
+# 22. APPLICATION USER EXPERIENCE
+
+Keep the existing professional SOH design.
+
+Use:
+
+- Navy blue
+- White
+- Light gray
+- Accessible status indicators
+- Clear headings
+- Responsive cards
+- Searchable directories
+- Filterable tables
+- Interactive charts
+- Mobile-friendly forms
+
+Recommended navigation:
+
+1. Command Dashboard
+2. Tasks
+3. Daily Activities
+4. Member Initiatives
+5. Personnel
+6. Incidents & Investigations
+7. Facilities & Deployment
+8. Security Projects
+9. Reports
+
+Avoid unnecessary additional pages.
+
+Group closely related functions.
+
+Prioritize critical incidents and management actions at the top of the Manager Dashboard.
+
+Provide direct navigation to the underlying records.
+
+---
+
+# 23. IMPLEMENTATION PHASES
+
+Do not implement all modules simultaneously.
+
+## PHASE 1 — DASHBOARD ACCURACY AND STABILITY
+
+**Priority: Immediate**
+
+Tasks:
+
+1. Inspect current components and Supabase queries.
+2. Identify existing KPI errors.
+3. Correct overdue-task discrepancies.
+4. Correct date filters.
+5. Verify personnel counts.
+6. Verify approval counts.
+7. Correct inconsistent status calculations.
+8. Improve loading and error handling.
+9. Add reliable refresh behavior.
+10. Preserve existing functional modules.
+
+Expected output:
+
+- Corrected Manager Dashboard
+- Consistent KPI calculation definitions
+- Verified totals
+- Phase 1 change summary
+
+## PHASE 2 — PERSONNEL AND REGIONAL PERFORMANCE
+
+**Priority: Immediate after Phase 1**
+
+Tasks:
+
+1. Inspect the existing Personnel Directory.
+2. Review the personnel hierarchy migration.
+3. Implement any missing organizational relationships.
+4. Complete the Manager personnel overview.
+5. Implement individual performance drill-down.
+6. Improve Member My Performance dashboard.
+7. Add regional performance comparisons.
+8. Add configurable KPI targets.
+9. Reconcile regional and department totals.
+10. Implement secure dashboard synchronization.
+
+Expected output:
+
+- Functional Personnel Directory
+- Configurable Organizational Hierarchy
+- Individual Performance Dashboard
+- Regional Performance Dashboard
+- Accurate Department Summary
+- Phase 2 change summary
+
+## PHASE 3 — INCIDENT AND INVESTIGATION MANAGEMENT
+
+After Phases 1 and 2 are tested:
+
+1. Add incident registration.
+2. Implement incident severity monitoring.
+3. Add investigation ownership.
+4. Monitor case deadlines.
+5. Implement case progress and review.
+6. Add escalation workflows.
+7. Connect critical incident alerts to the command dashboard.
+
+## PHASE 4 — FACILITY SECURITY AND GUARD DEPLOYMENT
+
+After Phase 3:
+
+1. Configure facility records.
+2. Add authorized security deployment.
+3. Record actual reported deployment.
+4. Track guard coverage shortages.
+5. Monitor security inspection findings.
+6. Track corrective actions.
+7. Add facility coverage indicators.
+
+## PHASE 5 — SECURITY PROJECTS AND EXECUTIVE REPORTING
+
+After Phase 4:
+
+1. Add Security Projects & Programs.
+2. Configure the six existing security program names.
+3. Add milestones and project owners.
+4. Monitor progress and blockers.
+5. Connect project alerts to the Manager Action Center.
+6. Generate executive summary reports.
+
+---
+
+# 24. REQUIRED TESTING
+
+Test each implemented phase using fictional information.
+
+## Manager Account
+
+Verify:
+
+- Department-wide dashboard access
+- Personnel directory
+- Individual performance drill-down
+- Task editing and reassignment
+- Task approval
+- Initiative recognition
+- Regional performance
+- Management reports
+
+## Supervisor Account
+
+Verify:
+
+- Authorized team access
+- Subordinate monitoring
+- Task updates
+- Initiative submissions
+- Supervisor feedback
+- Restrictions on Manager-only features
+
+## Team Member Account
+
+Verify:
+
+- Personal dashboard
+- Assigned task visibility
+- Task accomplishment submission
+- Member Initiative submission
+- Manager feedback
+- Personal performance history
+
+## Database Security
+
+Verify:
+
+- Unapproved accounts cannot access protected records.
+- Team Members cannot modify their own roles.
+- Users cannot approve their own accomplishments.
+- Personnel cannot view unauthorized private records.
+- Direct Supabase API requests cannot bypass access controls.
+- Historical task records are preserved.
+- Audit records cannot be altered by ordinary users.
+
+## Regression Testing
+
+Verify that all existing SOH functions still work after each update.
+
+Do not claim tests have passed unless they have actually been executed.
+
+---
+
+# 25. DEVELOPMENT AND DEPLOYMENT PROCEDURE
+
+Work in the following order.
+
+### Step 1 — Application Assessment
+
+Inspect the existing SOH code, components, navigation, Supabase queries, and authentication logic.
+
+### Step 2 — Existing Feature Inventory
+
+Identify:
+
+- Already working features
+- Partially implemented features
+- Missing features
+- Duplicate components
+- Database requirements
+- Existing calculation issues
+
+### Step 3 — Database Assessment
+
+Inspect the existing Supabase schema and migration files.
+
+Provide separate non-destructive SQL migrations where required.
+
+### Step 4 — Phase 1 Implementation
+
+Correct Dashboard accuracy and stability.
+
+### Step 5 — Phase 2 Implementation
+
+Complete Personnel, Organizational Hierarchy, and Regional Performance features.
+
+### Step 6 — Security Verification
+
+Verify role access, RLS, audit logging, and individual data privacy.
+
+### Step 7 — Functional Testing
+
+Test using separate Manager and Team Member accounts.
+
+### Step 8 — GitHub Update
+
+Push only reviewed and tested application changes to the existing GitHub repository.
+
+### Step 9 — Netlify Deployment
+
+Deploy through the existing Netlify project.
+
+Do not create another Netlify website.
+
+### Step 10 — Production Verification
+
+Verify:
+
+- Google login
+- Supabase connection
+- Manager dashboard
+- Team Member dashboard
+- Task creation
+- Task approval
+- Member Initiatives
+- Personnel Performance
+- Reports
+- Data synchronization
+
+---
+
+# 26. REQUIRED RESPONSE FROM GOOGLE AI STUDIO
+
+Before implementation, provide:
+
+1. Existing application assessment.
+2. Module inventory.
+3. Database and schema assessment.
+4. Status of the personnel hierarchy migration.
+5. Existing dashboard inconsistencies.
+6. Features already working.
+7. Features needing correction.
+8. Recommended technical modifications.
+9. Implementation phases.
+10. Required SQL migrations.
+11. Updated React and TypeScript files.
+12. Security and RLS considerations.
+13. Testing procedures.
+14. GitHub and Netlify update instructions.
+
+For each SQL migration, clearly identify:
+
+- Migration filename
+- Purpose
+- Tables affected
+- Columns added or modified
+- Row Level Security policies
+- Existing data implications
+- Execution instructions
+- Verification query
+- Expected outcome
+
+Do not automatically execute database migrations.
+
+Do not use destructive SQL.
+
+---
+
+# 27. FINAL DEVELOPMENT INSTRUCTION
+
+**BEGIN WITH PHASE 1 AND PHASE 2 ONLY.**
+
+Prioritize:
+
+1. Correcting the existing dashboard KPI calculations.
+2. Resolving overdue task reporting inconsistencies.
+3. Completing the Personnel Directory.
+4. Reviewing the pending organizational hierarchy migration.
+5. Implementing reliable reporting relationships.
+6. Completing the individual personnel performance dashboard.
+7. Building regional and department performance comparisons.
+8. Integrating approved initiatives into personnel accomplishments.
+9. Implementing secure live dashboard synchronization.
+10. Preserving all existing operational functions.
+
+Prepare Phases 3, 4, and 5 as future implementation modules.
+
+Do not implement these later phases until the foundation has been reviewed and tested.
+
+Do not create a new application, Supabase project, GitHub repository, or Netlify project.
+
+Preserve the existing deployment configuration and user accounts.
+
+**EXPECTED FINAL RESULT**
+
+A complete Security Operations Hub for the **Security Department** that enables the Security Manager to monitor nationwide security operations, manage personnel and assignments, identify operational issues, evaluate verified accomplishments, oversee incidents and investigations, monitor facility coverage, track security programs, and make timely management decisions through a centralized, reliable, and secure Command & Control Dashboard.

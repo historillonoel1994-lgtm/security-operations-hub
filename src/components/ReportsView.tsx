@@ -11,6 +11,7 @@ import {
   computePersonnelPerformance,
   computeUnitPerformanceSummaries,
   computeRegionalPerformanceSummaries,
+  computeConsolidatedRegionRollups,
   computeMonthlyTrendBuckets,
   getDateRangeForPreset,
   isTaskInReportingCohort,
@@ -57,6 +58,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     positions,
     operatingRegions,
     assignmentsByUserId,
+    performanceTargets,
   } = useData();
 
   // Date range presets (default: This Month in Asia/Manila)
@@ -177,9 +179,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     );
   }, [filteredTasks]);
 
+  // Currently Overdue Tasks (ALL open overdue tasks across sourceTasks so all tables reconcile 100%)
   const overdueTasks = useMemo(() => {
-    return filteredTasks.filter((t) => getDueStatusLabel(t.due_date, t.status).isOverdue);
-  }, [filteredTasks]);
+    return sourceTasks.filter((t) => getDueStatusLabel(t.due_date, t.status).isOverdue);
+  }, [sourceTasks]);
+
+  const overdueInPeriodCount = useMemo(() => {
+    return overdueTasks.filter((t) => t.due_date >= fromDate && t.due_date <= toDate).length;
+  }, [overdueTasks, fromDate, toDate]);
 
   const completedTasks = useMemo(() => {
     return filteredTasks.filter((t) => t.status === 'completed');
@@ -220,6 +227,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           activities,
           initiatives: sourceInitiatives,
           initiativeHistory,
+          performanceTargets,
           fromDate,
           toDate,
         })
@@ -239,6 +247,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     activities,
     sourceInitiatives,
     initiativeHistory,
+    performanceTargets,
     fromDate,
     toDate,
   ]);
@@ -276,6 +285,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     fromDate,
     toDate,
   ]);
+
+  const consolidatedRollups = useMemo(
+    () => computeConsolidatedRegionRollups(regionalSummaries),
+    [regionalSummaries]
+  );
 
   // 4-Month Trend Buckets
   const monthlyTrends = useMemo(() => {
@@ -416,13 +430,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       'Assigned Site',
       'Reports To',
       'Operational Status',
+      'Operational Index (Non-Appraisal)',
       'Tasks Assigned',
-      'Active Tasks',
-      'Overdue Tasks',
+      'All Open Tasks',
+      'Currently Overdue',
       'Completed Tasks',
       'Completion Rate',
       'On-Time Rate',
       'Daily Activities',
+      'Daily Log Coverage',
       'Recognized Initiatives',
       'Returned Events',
     ];
@@ -436,13 +452,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       `"${(r.assignment?.assigned_site || '').replace(/"/g, '""')}"`,
       `"${(r.supervisor?.name || 'None').replace(/"/g, '""')}"`,
       `"${r.assignment?.operational_status || (r.user.active ? 'active' : 'inactive')}"`,
+      `"${r.operationalIndex.display}"`,
       `"${r.totalAssignedTasks}"`,
-      `"${r.activeTasksCount}"`,
+      `"${r.allOpenTasksCount}"`,
       `"${r.overdueTasksCount}"`,
       `"${r.completedTasksCount}"`,
       `"${r.completionRate.display}"`,
       `"${r.onTimeRate.display}"`,
       `"${r.activitiesCount}"`,
+      `"${r.dailyActivityRate.display}"`,
       `"${r.recognizedInitiativesCount}"`,
       `"${r.returnedSubmissionsEvents}"`,
     ]);
@@ -637,9 +655,11 @@ ${
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-rose-700 uppercase">Overdue Tasks</span>
+          <span className="text-xs font-semibold text-rose-700 uppercase">Curr. Overdue</span>
           <div className="text-2xl font-bold text-rose-900 mt-1">{overdueTasks.length}</div>
-          <span className="text-[11px] text-rose-700/80">Requiring escalation</span>
+          <span className="text-[11px] text-rose-700/80">
+            {overdueInPeriodCount} due in window • All open overdue
+          </span>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
@@ -735,7 +755,7 @@ ${
                       <th className="p-2">Region</th>
                       <th className="p-2 text-center">Assigned</th>
                       <th className="p-2 text-center">Done</th>
-                      <th className="p-2 text-center">Overdue</th>
+                      <th className="p-2 text-center">Curr. Overdue</th>
                       <th className="p-2 text-center">Logs</th>
                       <th className="p-2">Completion</th>
                       <th className="p-2">On-Time</th>
@@ -751,6 +771,17 @@ ${
                         <td className="p-2 text-center text-blue-700 font-medium">{r.activitiesCount}</td>
                         <td className="p-2 font-mono text-slate-800">{r.completionRate.display}</td>
                         <td className="p-2 font-mono text-slate-800">{r.onTimeRate.display}</td>
+                      </tr>
+                    ))}
+                    {[consolidatedRollups.consolidatedVisayas, consolidatedRollups.consolidatedMindanao].map((cg) => (
+                      <tr key={cg.region.id} className="bg-blue-50/70 font-semibold border-t border-blue-200">
+                        <td className="p-2 text-blue-950">{cg.region.name}</td>
+                        <td className="p-2 text-center text-blue-950">{cg.assignedPersonnelCount}</td>
+                        <td className="p-2 text-center text-emerald-800">{cg.completedTasksCount}</td>
+                        <td className="p-2 text-center text-rose-800">{cg.overdueTasksCount}</td>
+                        <td className="p-2 text-center text-blue-900">{cg.activitiesCount}</td>
+                        <td className="p-2 font-mono text-blue-950">{cg.completionRate.display}</td>
+                        <td className="p-2 font-mono text-blue-950">{cg.onTimeRate.display}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -878,10 +909,13 @@ ${
               </div>
             </div>
             <div>
-              <span className="text-[10px] font-semibold text-slate-500 uppercase">Completion</span>
-              <div className="font-bold text-slate-900 mt-0.5 font-mono">
-                {selectedIndividualRecord.completionRate.display}
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Op. Index (Non-Appraisal)</span>
+              <div className="font-bold text-blue-900 mt-0.5 font-mono">
+                {selectedIndividualRecord.operationalIndex.display}
               </div>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Comp: {selectedIndividualRecord.completionRate.display}
+              </span>
             </div>
             <div>
               <span className="text-[10px] font-semibold text-slate-500 uppercase">On-Time SLA</span>
@@ -893,6 +927,9 @@ ${
               <span className="text-[10px] font-semibold text-slate-500 uppercase">Daily Logs</span>
               <div className="font-bold text-blue-800 mt-0.5">
                 {selectedIndividualRecord.activitiesCount}
+                <span className="block text-[10px] font-mono text-slate-500">
+                  {selectedIndividualRecord.dailyActivityRate.display}
+                </span>
               </div>
             </div>
             <div>
@@ -915,9 +952,10 @@ ${
                   <th className="p-2.5">Region</th>
                   <th className="p-2.5 text-center">Assigned</th>
                   <th className="p-2.5 text-center">Completed</th>
-                  <th className="p-2.5 text-center">Overdue</th>
+                  <th className="p-2.5 text-center">Curr. Overdue</th>
                   <th className="p-2.5">Completion Rate</th>
                   <th className="p-2.5">On-Time Rate</th>
+                  <th className="p-2.5 text-center">Op. Index</th>
                   <th className="p-2.5 text-center">Logs</th>
                   <th className="p-2.5 text-center">Recognized</th>
                   <th className="p-2.5 text-right">Actions</th>
@@ -948,6 +986,9 @@ ${
                     </td>
                     <td className="p-2.5 font-mono text-slate-800">{rec.completionRate.display}</td>
                     <td className="p-2.5 font-mono text-slate-800">{rec.onTimeRate.display}</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-blue-900">
+                      {rec.operationalIndex.display}
+                    </td>
                     <td className="p-2.5 text-center text-blue-700 font-semibold">
                       {rec.activitiesCount}
                     </td>

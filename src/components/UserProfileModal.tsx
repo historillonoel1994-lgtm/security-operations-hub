@@ -57,7 +57,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <div className="flex justify-between">
               <span className="text-slate-500">Security Role:</span>
               <span className="font-semibold text-slate-900 capitalize">
-                {isManager ? 'Corporate Security Manager' : 'Field Supervisor / Personnel'}
+                {isManager ? 'Security Manager' : 'Field Supervisor / Personnel'}
               </span>
             </div>
 
